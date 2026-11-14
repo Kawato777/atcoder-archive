@@ -1,14 +1,20 @@
 {
-  "name": "AtCoder C++",
-  "image": "mcr.microsoft.com/devcontainers/cpp:1-ubuntu-24.04",
+  "name": "AtCoder C++ (GCC 15.2)",
+  // AtCoder の C++23 (GCC 15.2.0) に合わせた公式 GCC イメージ
+  "image": "gcc:15.2",
   "postCreateCommand": "bash .devcontainer/setup.sh",
+  "remoteEnv": {
+    "PATH": "/root/.local/bin:${containerEnv:PATH}"
+  },
   "customizations": {
     "vscode": {
-      "extensions": ["ms-vscode.cpptools"],
+      "extensions": [
+        "ms-vscode.cpptools",
+        "vadimcn.vscode-lldb",
+        "spencerwmiles.vscode-task-buttons"
+      ],
       "settings": {
-        "C_Cpp.default.compilerPath": "/usr/bin/g++",
-        "C_Cpp.default.cppStandard": "gnu++20",
-        "C_Cpp.default.includePath": ["${workspaceFolder}/**", "/usr/local/include"]
+        "C_Cpp.default.compilerPath": "/usr/local/bin/g++"
       }
     }
   }

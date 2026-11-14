@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug (sample-1)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${fileDirname}/${fileBasenameNoExtension}.out",
+      "cwd": "${fileDirname}",
+      "stdio": ["${fileDirname}/test/sample-1.in", null, null],
+      "preLaunchTask": "debug build"
+    },
+    {
+      "name": "Debug (input.txt)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${fileDirname}/${fileBasenameNoExtension}.out",
+      "cwd": "${fileDirname}",
+      "stdio": ["${fileDirname}/input.txt", null, null],
+      "preLaunchTask": "debug build"
+    },
+    {
+      "name": "Debug (手入力)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${fileDirname}/${fileBasenameNoExtension}.out",
+      "cwd": "${fileDirname}",
+      "terminal": "integrated",
+      "preLaunchTask": "debug build"
+    }
+  ]
+}

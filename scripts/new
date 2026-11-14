@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""AtCoder のコンテストから問題ディレクトリとサンプルケースを作る（ログイン不要）。
+
+使い方:
+    scripts/new abc380          # 全問題
+    scripts/new abc380 a c      # A と C だけ
+
+abc380 -> ABC/380/A/main.cpp, ABC/380/A/test/sample-*.{in,out}
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from html.parser import HTMLParser
+from pathlib import Path
+
+ATCODER = "https://atcoder.jp"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TEMPLATE = REPO_ROOT / "base.cpp"
+SOURCE_NAME = "main.cpp"
+TEST_DIR_NAME = "test"
+
+
+@dataclass(frozen=True)
+class Task:
+    label: str  # "A", "B", ..., "Ex"
+    url: str
+
+
+class TaskTableParser(HTMLParser):
+    """/contests/<id>/tasks の表から (ラベル, URL) を集める。
+
+    各行の先頭セルのリンクテキストが "A" などのラベル、href が問題ページ。
+    """
+
+    def __init__(self, contest_id: str) -> None:
+        super().__init__()
+        self._pattern = re.compile(rf"^/contests/{re.escape(contest_id)}/tasks/[^/]+$")
+        self._href: str | None = None
+        self._text = ""
+        self.tasks: list[Task] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        href = dict(attrs).get("href")
+        if tag == "a" and href is not None and self._pattern.match(href):
+            self._href = href
+            self._text = ""
+
+    def handle_data(self, data: str) -> None:
+        if self._href is not None:
+            self._text += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "a" or self._href is None:
+            return
+        url = ATCODER + self._href
+        label = self._text.strip()
+        # 同じ URL のリンクが「ラベル」「問題名」の 2 回出てくるので最初の 1 回だけ使う
+        if label and all(t.url != url for t in self.tasks):
+            self.tasks.append(Task(label=label, url=url))
+        self._href = None
+
+
+def fetch(url: str) -> str:
+    request = urllib.request.Request(url, headers={"User-Agent": "atcoder-archive-practice"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"エラー: {url} の取得に失敗しました（HTTP {e.code}）。コンテストIDを確認してください") from e
+    except urllib.error.URLError as e:
+        raise SystemExit(f"エラー: {url} に接続できません: {e.reason}") from e
+
+
+def fetch_tasks(contest_id: str) -> list[Task]:
+    parser = TaskTableParser(contest_id)
+    parser.feed(fetch(f"{ATCODER}/contests/{contest_id}/tasks"))
+    if not parser.tasks:
+        raise SystemExit(f"エラー: {contest_id} の問題一覧が見つかりません（開催中で非公開の可能性があります）")
+    return parser.tasks
+
+
+def contest_dir(contest_id: str) -> Path:
+    """abc380 -> ABC/380, arc180 -> ARC/180, それ以外 (abs, typical90 ...) -> ABS, TYPICAL90"""
+    m = re.fullmatch(r"([a-z]+)(\d+)", contest_id)
+    return REPO_ROOT / (Path(m[1].upper(), m[2]) if m else Path(contest_id.upper()))
+
+
+def select(tasks: list[Task], labels: list[str]) -> list[Task]:
+    if not labels:
+        return tasks
+    wanted = {label.upper() for label in labels}
+    unknown = wanted - {t.label.upper() for t in tasks}
+    if unknown:
+        raise SystemExit(f"エラー: 存在しない問題: {', '.join(sorted(unknown))}")
+    return [t for t in tasks if t.label.upper() in wanted]
+
+
+def create_source(task_dir: Path, task: Task) -> str:
+    source = task_dir / SOURCE_NAME
+    if source.exists():
+        return "既存のため skip"
+    source.write_text(f"// {task.url}\n{TEMPLATE.read_text()}")
+    return "作成"
+
+
+def download_samples(task_dir: Path, task: Task) -> str:
+    test_dir = task_dir / TEST_DIR_NAME
+    if test_dir.exists():
+        return "既存のため skip"
+    result = subprocess.run(
+        ["oj", "download", task.url, "--directory", str(test_dir)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(result.stdout + result.stderr, file=sys.stderr)
+        return "失敗"
+    return f"{len(list(test_dir.glob('*.in')))} 件取得"
+
+
+def main(argv: list[str]) -> int:
+    if not argv:
+        print(__doc__, file=sys.stderr)
+        return 2
+    contest_id, labels = argv[0].lower(), argv[1:]
+
+    tasks = select(fetch_tasks(contest_id), labels)
+    base = contest_dir(contest_id)
+    failed = False
+    for task in tasks:
+        task_dir = base / task.label
+        task_dir.mkdir(parents=True, exist_ok=True)
+        src = create_source(task_dir, task)
+        samples = download_samples(task_dir, task)
+        failed |= samples == "失敗"
+        print(f"{task.label:>3}: {task_dir.relative_to(REPO_ROOT)}/{SOURCE_NAME} ({src}), サンプル: {samples}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

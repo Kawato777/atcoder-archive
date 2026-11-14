@@ -2,29 +2,88 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "test: 現在のファイル",
+      "detail": "GCC 15 / C++23 でビルドし、同じディレクトリの test/ で oj t を実行",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/test",
+      "args": ["${file}"],
+      "options": { "cwd": "${fileDirname}" },
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "focus": true, "panel": "dedicated", "clear": true },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "new: 問題を取得",
+      "detail": "scripts/new <contest> [問題...] を実行（例: abc380 / abc380 a c）",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/new ${input:contest}",
+      "presentation": { "focus": true, "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
       "label": "build",
       "type": "shell",
-      "command": "g++",
+      "command": "g++-15",
       "args": [
-        "-std=gnu++20",
+        "-std=gnu++23",
         "-O2",
         "-Wall",
         "-Wextra",
         "-DLOCAL",
+        "-I",
+        "${workspaceFolder}/.lib/ac-library",
         "${file}",
         "-o",
         "${fileDirname}/${fileBasenameNoExtension}.out"
       ],
-      "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": ["$gcc"]
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
     },
     {
       "label": "build & run",
       "type": "shell",
       "command": "${fileDirname}/${fileBasenameNoExtension}.out",
       "dependsOn": "build",
-      "presentation": { "focus": true, "panel": "dedicated", "clear": true },
+      "presentation": {
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true
+      },
       "problemMatcher": []
+    },
+    {
+      "label": "debug build",
+      "type": "shell",
+      "command": "g++-15",
+      "args": [
+        "-std=gnu++23",
+        "-g",
+        "-O0",
+        "-Wall",
+        "-Wextra",
+        "-DLOCAL",
+        "-I",
+        "${workspaceFolder}/.lib/ac-library",
+        "${file}",
+        "-o",
+        "${fileDirname}/${fileBasenameNoExtension}.out"
+      ],
+      "group": "build",
+      "problemMatcher": [
+        "$gcc"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "contest",
+      "type": "promptString",
+      "description": "コンテストID（例: abc380、特定の問題だけなら abc380 a c）"
     }
   ]
 }

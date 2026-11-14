@@ -1,3 +1,37 @@
 {
-    "files.autoSave": "onFocusChange"
+  "files.autoSave": "onFocusChange",
+
+  // ---------- C++ ----------
+  // ユーザー設定のフォーマッタ・インデント幅に関係なく、C++ はこの設定で統一する
+  "[cpp]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.formatOnSave": true,
+    "editor.tabSize": 4
+  },
+  "C_Cpp.clang_format_fallbackStyle": "{ BasedOnStyle: Google, IndentWidth: 4, ColumnLimit: 0, AllowShortIfStatementsOnASingleLine: true, AllowShortLoopsOnASingleLine: true }",
+  "C_Cpp.default.compilerPath": "/opt/homebrew/bin/g++-15",
+  "C_Cpp.default.cppStandard": "gnu++23",
+  "C_Cpp.default.includePath": ["${workspaceFolder}/.lib/ac-library"],
+  "C_Cpp.default.defines": ["LOCAL"],
+
+  // ビルド成果物をエクスプローラーから隠す
+  "files.exclude": {
+    "**/*.out": true,
+    "**/*.dSYM": true
+  },
+
+  // ---------- ステータスバーのボタン (spencerwmiles.vscode-task-buttons) ----------
+  "VsCodeTaskButtons.showCounter": false,
+  "VsCodeTaskButtons.tasks": [
+    {
+      "label": "$(beaker) Test",
+      "task": "test: 現在のファイル",
+      "tooltip": "開いている .cpp をビルドしてサンプルでテスト"
+    },
+    {
+      "label": "$(cloud-download) New",
+      "task": "new: 問題を取得",
+      "tooltip": "コンテストの問題ディレクトリとサンプルを取得"
+    }
+  ]
 }

@@ -70,3 +70,12 @@ Testing/
 # OS / エディタ
 .DS_Store
 *.dSYM/
+
+# デバッグ用の入力ファイル
+input.txt
+
+# oj が取得したサンプルケース（scripts/new でいつでも再取得できる）
+test/
+
+# scripts/setup-mac.sh が取得する外部ライブラリ（AC Library）
+.lib/

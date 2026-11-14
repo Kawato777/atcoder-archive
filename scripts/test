@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# 指定した .cpp を AtCoder と同じ GCC 15 / C++23 でビルドし、同じディレクトリの test/ で oj t を実行する
+#   使い方: scripts/test ABC/380/A/main.cpp
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "使い方: $0 <ソースファイル.cpp>" >&2
+  exit 2
+fi
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SRC="$1"
+DIR="$(cd "$(dirname "$SRC")" && pwd)"
+BIN="$DIR/$(basename "${SRC%.*}").out"
+TEST_DIR="$DIR/test"
+CXX="${CXX:-g++-15}"
+
+if [[ ! -d "$TEST_DIR" ]]; then
+  echo "エラー: $TEST_DIR がありません。scripts/new <contest> で問題を取得してください" >&2
+  exit 1
+fi
+command -v "$CXX" >/dev/null || { echo "エラー: $CXX がありません。scripts/setup-mac.sh を実行してください" >&2; exit 1; }
+command -v oj >/dev/null || { echo "エラー: oj がありません。scripts/setup-mac.sh を実行してください" >&2; exit 1; }
+
+echo "==> build: $SRC"
+"$CXX" -std=gnu++23 -O2 -Wall -Wextra -DLOCAL \
+  -I "$REPO_ROOT/.lib/ac-library" \
+  "$SRC" -o "$BIN"
+
+echo "==> test: $TEST_DIR"
+oj test --command "$BIN" --directory "$TEST_DIR"
