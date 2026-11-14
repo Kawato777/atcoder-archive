@@ -14,7 +14,7 @@
     },
     {
       "label": "new: 問題を取得",
-      "detail": "scripts/new <contest> [問題...] を実行（例: abc380 / abc380 a c）",
+      "detail": "scripts/new <contest> [問題...] を実行して practice/ に取得（例: abc380 / abc380 a c）",
       "type": "shell",
       "command": "${workspaceFolder}/scripts/new ${input:contest}",
       "presentation": { "focus": true, "panel": "dedicated", "clear": true },

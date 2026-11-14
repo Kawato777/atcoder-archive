@@ -4,16 +4,23 @@
 
 ## 目次
 
-### AtCoder Beginners Selection (ABS)
+| ディレクトリ | 内容 |
+| --- | --- |
+| [`contest/`](contest/) | 実際に参加したコンテスト。終了時点の状態を残している |
+| [`practice/`](practice/) | 過去問と、参加した回の解き直し（upsolve） |
 
-[`ABS/`](ABS/) — [問題一覧](https://atcoder.jp/contests/abs/tasks)
-
-### AtCoder Beginner Contest (ABC)
+### 参加したコンテスト
 
 | コンテスト | 解答 |
 | --- | --- |
-| [ABC483](https://atcoder.jp/contests/abc483) | [`ABC/483`](ABC/483/) |
-| [ABC484](https://atcoder.jp/contests/abc484) | [`ABC/484`](ABC/484/) |
+| [ABC484](https://atcoder.jp/contests/abc484) | [`contest/ABC/484`](contest/ABC/484/) |
+
+### 過去問
+
+| コンテスト | 解答 |
+| --- | --- |
+| [AtCoder Beginners Selection](https://atcoder.jp/contests/abs) | [`practice/ABS`](practice/ABS/) |
+| [ABC483](https://atcoder.jp/contests/abc483) | [`practice/ABC/483`](practice/ABC/483/) |
 
 ## 使い方
 
@@ -25,7 +32,7 @@
 
 VS Code の左端の **AC** アイコンから操作する。
 
-1. **インポート**: コンテストID（例: `abc380`）を入れて問題とサンプルを取得
+1. **インポート**: コンテストID（例: `abc380`）を入れて、問題とサンプルを `practice/` に取得
 2. **テスト**: `main.cpp` を書いて **▶ テスト実行**
 3. **コピーして提出ページへ** で提出
 

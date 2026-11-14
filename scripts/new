@@ -2,10 +2,16 @@
 """AtCoder のコンテストから問題ディレクトリとサンプルケースを作る（ログイン不要）。
 
 使い方:
-    scripts/new abc380          # 全問題
-    scripts/new abc380 a c      # A と C だけ
+    scripts/new abc380                # 過去問として全問題を取得
+    scripts/new abc380 a c            # A と C だけ
+    scripts/new --contest abc485      # 参加した回の記録を contest/ に作る（終了後に提出コードを残すとき）
 
-abc380 -> ABC/380/A/main.cpp, ABC/380/A/test/sample-*.{in,out}
+過去問:       abc380 -> practice/ABC/380/A/main.cpp, practice/ABC/380/A/test/sample-*.{in,out}
+参加した回:   abc485 -> contest/ABC/485/A/main.cpp ...
+
+contest/ はコンテスト終了時点の状態を残す場所。終了後に解き直す (upsolve) ときは
+--contest を付けずに取得して practice/ に置く。
+コンテスト開催中は問題ページの閲覧にログインが必要な場合があり、取得に失敗することがある。
 """
 
 from __future__ import annotations
@@ -24,6 +30,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = REPO_ROOT / "base.cpp"
 SOURCE_NAME = "main.cpp"
 TEST_DIR_NAME = "test"
+PRACTICE_DIR = "practice"
+CONTEST_DIR = "contest"
+CONTEST_FLAG = "--contest"
 
 
 @dataclass(frozen=True)
@@ -85,10 +94,12 @@ def fetch_tasks(contest_id: str) -> list[Task]:
     return parser.tasks
 
 
-def contest_dir(contest_id: str) -> Path:
-    """abc380 -> ABC/380, arc180 -> ARC/180, それ以外 (abs, typical90 ...) -> ABS, TYPICAL90"""
+def contest_dir(contest_id: str, participated: bool) -> Path:
+    """「英字+数字」の ID は 2 階層 (abc380 -> ABC/380)、それ以外は大文字 1 階層 (abs -> ABS)。
+    その上に参加した回なら contest/、過去問なら practice/ を付ける。"""
     m = re.fullmatch(r"([a-z]+)(\d+)", contest_id)
-    return REPO_ROOT / (Path(m[1].upper(), m[2]) if m else Path(contest_id.upper()))
+    relative = Path(m[1].upper(), m[2]) if m else Path(contest_id.upper())
+    return REPO_ROOT / (CONTEST_DIR if participated else PRACTICE_DIR) / relative
 
 
 def select(tasks: list[Task], labels: list[str]) -> list[Task]:
@@ -125,13 +136,18 @@ def download_samples(task_dir: Path, task: Task) -> str:
 
 
 def main(argv: list[str]) -> int:
-    if not argv:
+    participated = CONTEST_FLAG in argv
+    positional = [a for a in argv if a != CONTEST_FLAG]
+    unknown_flags = [a for a in positional if a.startswith("-")]
+    if unknown_flags:
+        raise SystemExit(f"エラー: 不明なオプション: {', '.join(unknown_flags)}（使えるのは {CONTEST_FLAG} だけ）")
+    if not positional:
         print(__doc__, file=sys.stderr)
         return 2
-    contest_id, labels = argv[0].lower(), argv[1:]
+    contest_id, labels = positional[0].lower(), positional[1:]
 
     tasks = select(fetch_tasks(contest_id), labels)
-    base = contest_dir(contest_id)
+    base = contest_dir(contest_id, participated)
     failed = False
     for task in tasks:
         task_dir = base / task.label

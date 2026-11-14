@@ -61,6 +61,7 @@ export class ImportViewProvider implements vscode.WebviewViewProvider {
     void this.view?.webview.postMessage({ type: "state", state: this.state });
   }
 
+  /** 過去問として practice/ に取得する（参加した回の記録はターミナルで scripts/new --contest を使う） */
   private async import(contestInput: string, tasksInput: string): Promise<void> {
     if (this.state.running) return;
     const root = findRepoRoot();
@@ -69,7 +70,8 @@ export class ImportViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const args = [...words(contestInput).slice(0, 1), ...words(tasksInput)];
-    if (args.length === 0 || !args.every(isSafeWord)) {
+    // "-" で始まる語はオプションと解釈されるので入力欄からは受け付けない
+    if (args.length === 0 || !args.every((w) => isSafeWord(w) && !w.startsWith("-"))) {
       this.setState({ error: "コンテストIDを入力してください（例: abc380）" });
       return;
     }
