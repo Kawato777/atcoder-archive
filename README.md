@@ -47,7 +47,7 @@ AtCoder へのログインは不要（過去問の問題ページとサンプル
 
 VS Code でリポジトリを開き、「推奨拡張機能」をインストールする（C/C++、CodeLLDB、Task Buttons）。拡張を入れた直後はコマンドパレットで **Developer: Reload Window** を実行する。
 
-拡張のコードを変更したときは `./scripts/install-extension.sh` で入れ直す。
+拡張のコードを変更したときは、`tools/vscode-atcoder` で `npm version patch --no-git-tag-version` を実行してバージョンを上げてから `./scripts/install-extension.sh` で入れ直す（同じバージョンのまま上書きすると、アイコンなどが VS Code のキャッシュで古いまま表示されることがある）。
 
 ### Dev Container / Codespaces（予備）
 

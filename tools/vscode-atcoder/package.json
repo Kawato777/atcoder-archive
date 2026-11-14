@@ -2,14 +2,16 @@
   "name": "atcoder-practice",
   "displayName": "AtCoder Practice",
   "description": "このリポジトリ専用: サイドバーから問題の取得とサンプルテストを行う",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "local",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
     "vscode": "^1.99.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "main": "./out/extension.js",
   "activationEvents": [],
   "contributes": {
