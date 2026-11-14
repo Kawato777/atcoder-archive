@@ -79,3 +79,8 @@ test/
 
 # scripts/setup-mac.sh が取得する外部ライブラリ（AC Library）
 .lib/
+
+# VS Code 拡張（tools/vscode-atcoder）のビルド成果物
+tools/vscode-atcoder/node_modules/
+tools/vscode-atcoder/out/
+*.vsix

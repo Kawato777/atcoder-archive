@@ -1,0 +1,50 @@
+{
+  "name": "atcoder-practice",
+  "displayName": "AtCoder Practice",
+  "description": "このリポジトリ専用: サイドバーから問題の取得とサンプルテストを行う",
+  "version": "0.1.0",
+  "publisher": "local",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "atcoder",
+          "title": "AtCoder",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "atcoder": [
+        {
+          "type": "webview",
+          "id": "atcoder.import",
+          "name": "インポート"
+        },
+        {
+          "type": "webview",
+          "id": "atcoder.test",
+          "name": "テスト"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "package": "vsce package --no-dependencies --skip-license --allow-missing-repository -o atcoder-practice.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "~1.99.0",
+    "@vscode/vsce": "^4.1.1",
+    "typescript": "^7.0.2"
+  }
+}

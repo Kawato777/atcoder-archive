@@ -36,5 +36,12 @@ else
     || { echo "エラー: AC Library の取得に失敗しました" >&2; exit 1; }
 fi
 
+echo "==> VS Code 拡張（サイドバー）"
+if command -v npm >/dev/null 2>&1; then
+  "$REPO_ROOT/scripts/install-extension.sh"
+else
+  echo "npm が無いのでスキップしました。Node.js を入れてから scripts/install-extension.sh を実行してください" >&2
+fi
+
 echo
 echo "セットアップ完了。動作確認: ./scripts/new abc380"

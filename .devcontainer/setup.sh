@@ -25,5 +25,8 @@ if [[ ! -d "$ACL_DIR/atcoder" ]]; then
     || { echo "AC Library の取得に失敗しました" >&2; exit 1; }
 fi
 
+# サイドバー拡張の .vsix を作る（インストールは postAttachCommand で行う）
+bash "$REPO_ROOT/scripts/install-extension.sh" --build-only
+
 g++-15 --version | head -n1
 oj --version | tail -n1

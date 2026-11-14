@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # 指定した .cpp を AtCoder と同じ GCC 15 / C++23 でビルドし、同じディレクトリの test/ で oj t を実行する
 #   使い方: scripts/test ABC/380/A/main.cpp
+#           scripts/test --build-only ABC/380/A/main.cpp   # ビルドだけ（VS Code 拡張から使う）
 set -euo pipefail
 
+BUILD_ONLY=false
+if [[ "${1:-}" == "--build-only" ]]; then
+  BUILD_ONLY=true
+  shift
+fi
+
 if [[ $# -ne 1 ]]; then
-  echo "使い方: $0 <ソースファイル.cpp>" >&2
+  echo "使い方: $0 [--build-only] <ソースファイル.cpp>" >&2
   exit 2
 fi
 
@@ -15,17 +22,29 @@ BIN="$DIR/$(basename "${SRC%.*}").out"
 TEST_DIR="$DIR/test"
 CXX="${CXX:-g++-15}"
 
+command -v "$CXX" >/dev/null || { echo "エラー: $CXX がありません。scripts/setup-mac.sh を実行してください" >&2; exit 1; }
+
+build() {
+  "$CXX" -std=gnu++23 -O2 -Wall -Wextra -DLOCAL \
+    -I "$REPO_ROOT/.lib/ac-library" \
+    "$SRC" -o "$BIN"
+}
+
+if $BUILD_ONLY; then
+  build
+  echo "$BIN"
+  exit 0
+fi
+
 if [[ ! -d "$TEST_DIR" ]]; then
   echo "エラー: $TEST_DIR がありません。scripts/new <contest> で問題を取得してください" >&2
   exit 1
 fi
-command -v "$CXX" >/dev/null || { echo "エラー: $CXX がありません。scripts/setup-mac.sh を実行してください" >&2; exit 1; }
 command -v oj >/dev/null || { echo "エラー: oj がありません。scripts/setup-mac.sh を実行してください" >&2; exit 1; }
 
 echo "==> build: $SRC"
-"$CXX" -std=gnu++23 -O2 -Wall -Wextra -DLOCAL \
-  -I "$REPO_ROOT/.lib/ac-library" \
-  "$SRC" -o "$BIN"
+build
 
 echo "==> test: $TEST_DIR"
-oj test --command "$BIN" --directory "$TEST_DIR"
+# AtCoder の公式ルール（空白文字の置き換え・追加は正解扱い）に合わせ、空白と改行を区別せずに比較する
+oj test --command "$BIN" --directory "$TEST_DIR" --ignore-spaces-and-newlines

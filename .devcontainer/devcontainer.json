@@ -2,7 +2,13 @@
   "name": "AtCoder C++ (GCC 15.2)",
   // AtCoder の C++23 (GCC 15.2.0) に合わせた公式 GCC イメージ
   "image": "gcc:15.2",
+  "features": {
+    // サイドバー拡張（tools/vscode-atcoder）のビルドに使う
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" }
+  },
   "postCreateCommand": "bash .devcontainer/setup.sh",
+  // VS Code が接続してからでないと code コマンドで拡張を入れられないため、ここでインストールする
+  "postAttachCommand": "bash scripts/install-extension.sh --install-only",
   "remoteEnv": {
     "PATH": "/root/.local/bin:${containerEnv:PATH}"
   },
