@@ -8,6 +8,9 @@ const STYLE = `
   input { width: 100%; box-sizing: border-box; padding: 4px 6px; color: var(--vscode-input-foreground);
           background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); }
   input:focus { outline: 1px solid var(--vscode-focusBorder); }
+  select { width: 100%; box-sizing: border-box; padding: 4px 6px; color: var(--vscode-dropdown-foreground);
+           background: var(--vscode-dropdown-background); border: 1px solid var(--vscode-dropdown-border, transparent); }
+  select:focus { outline: 1px solid var(--vscode-focusBorder); }
   button { margin: 8px 4px 0 0; padding: 4px 10px; border: none; cursor: pointer;
            color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
   button:hover { background: var(--vscode-button-hoverBackground); }

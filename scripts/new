@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""AtCoder のコンテストから問題ディレクトリとサンプルケースを作る（ログイン不要）。
+"""問題のファイルを作る。
 
 使い方:
-    scripts/new abc380                # 過去問として全問題を取得
-    scripts/new abc380 a c            # A と C だけ
-    scripts/new --contest abc485      # 参加した回の記録を contest/ に作る（終了後に提出コードを残すとき）
+    scripts/new abc380                # 過去問: 問題とサンプルを取得（ログイン不要）
+    scripts/new abc380 a c            # 過去問: A と C だけ
+    scripts/new --contest abc485      # コンテスト参加: base.cpp から A.cpp ... を作る（通信しない）
+    scripts/new --contest abc485 h    # コンテスト参加: H.cpp だけ追加
 
-過去問:       abc380 -> practice/ABC/380/A/main.cpp, practice/ABC/380/A/test/sample-*.{in,out}
-参加した回:   abc485 -> contest/ABC/485/A/main.cpp ...
+過去問:         abc380 -> practice/ABC/380/A/main.cpp, practice/ABC/380/A/test/sample-*.{in,out}
+コンテスト参加: abc485 -> contest/ABC/485/A.cpp ... G.cpp
 
+コンテスト参加用の問題数は決め打ち（ABC: A-G, ARC/AGC: A-F, AHC: A）。
 contest/ はコンテスト終了時点の状態を残す場所。終了後に解き直す (upsolve) ときは
 --contest を付けずに取得して practice/ に置く。
-コンテスト開催中は問題ページの閲覧にログインが必要な場合があり、取得に失敗することがある。
 """
 
 from __future__ import annotations
@@ -33,6 +34,15 @@ TEST_DIR_NAME = "test"
 PRACTICE_DIR = "practice"
 CONTEST_DIR = "contest"
 CONTEST_FLAG = "--contest"
+
+# 番号付きのシリーズと、コンテスト参加時に作る問題（現行形式に合わせた決め打ち）
+SERIES_PROBLEMS: dict[str, str] = {
+    "abc": "ABCDEFG",
+    "arc": "ABCDEF",
+    "agc": "ABCDEF",
+    "ahc": "A",
+}
+SERIES_ID = re.compile(rf"({'|'.join(SERIES_PROBLEMS)})(\d+)")
 
 
 @dataclass(frozen=True)
@@ -75,13 +85,21 @@ class TaskTableParser(HTMLParser):
         self._href = None
 
 
+def http_error_message(url: str, code: int) -> str:
+    if code == 429:
+        return "エラー: AtCoder へのアクセスが多すぎます（HTTP 429）。1分ほど待ってから再実行してください"
+    if code == 404:
+        return f"エラー: {url} が見つかりません（HTTP 404）。コンテストIDを確認してください"
+    return f"エラー: {url} の取得に失敗しました（HTTP {code}）"
+
+
 def fetch(url: str) -> str:
     request = urllib.request.Request(url, headers={"User-Agent": "atcoder-archive-practice"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.read().decode("utf-8")
     except urllib.error.HTTPError as e:
-        raise SystemExit(f"エラー: {url} の取得に失敗しました（HTTP {e.code}）。コンテストIDを確認してください") from e
+        raise SystemExit(http_error_message(url, e.code)) from e
     except urllib.error.URLError as e:
         raise SystemExit(f"エラー: {url} に接続できません: {e.reason}") from e
 
@@ -95,9 +113,10 @@ def fetch_tasks(contest_id: str) -> list[Task]:
 
 
 def contest_dir(contest_id: str, participated: bool) -> Path:
-    """「英字+数字」の ID は 2 階層 (abc380 -> ABC/380)、それ以外は大文字 1 階層 (abs -> ABS)。
+    """ABC/ARC/AGC/AHC は 2 階層 (abc380 -> ABC/380)、それ以外は ID 全体を大文字 1 階層
+    (typical90 -> TYPICAL90, hhkb2020 -> HHKB2020)。
     その上に参加した回なら contest/、過去問なら practice/ を付ける。"""
-    m = re.fullmatch(r"([a-z]+)(\d+)", contest_id)
+    m = SERIES_ID.fullmatch(contest_id)
     relative = Path(m[1].upper(), m[2]) if m else Path(contest_id.upper())
     return REPO_ROOT / (CONTEST_DIR if participated else PRACTICE_DIR) / relative
 
@@ -135,6 +154,43 @@ def download_samples(task_dir: Path, task: Task) -> str:
     return f"{len(list(test_dir.glob('*.in')))} 件取得"
 
 
+def new_practice(contest_id: str, labels: list[str]) -> int:
+    """過去問: 問題一覧とサンプルを取得して <問題>/main.cpp と <問題>/test/ を作る"""
+    tasks = select(fetch_tasks(contest_id), labels)
+    base = contest_dir(contest_id, participated=False)
+    failed = False
+    for task in tasks:
+        task_dir = base / task.label
+        task_dir.mkdir(parents=True, exist_ok=True)
+        src = create_source(task_dir, task)
+        samples = download_samples(task_dir, task)
+        failed |= samples == "失敗"
+        print(f"{task.label:>3}: {task_dir.relative_to(REPO_ROOT)}/{SOURCE_NAME} ({src}), サンプル: {samples}")
+    return 1 if failed else 0
+
+
+def new_contest(contest_id: str, labels: list[str]) -> int:
+    """コンテスト参加: 通信せず base.cpp から <問題>.cpp を作る（contest/ABC/484 と同じ形）"""
+    m = SERIES_ID.fullmatch(contest_id)
+    if m is None:
+        series = ", ".join(s.upper() for s in SERIES_PROBLEMS)
+        raise SystemExit(f"エラー: コンテスト用の作成は {series} だけに対応しています（例: abc485）")
+    problems = [label.upper() for label in labels] or list(SERIES_PROBLEMS[m[1]])
+    if not all(re.fullmatch(r"[A-Z0-9]+", p) for p in problems):
+        raise SystemExit(f"エラー: 問題は英数字で指定してください: {' '.join(problems)}")
+
+    base = contest_dir(contest_id, participated=True)
+    base.mkdir(parents=True, exist_ok=True)
+    template = TEMPLATE.read_text()
+    for label in problems:
+        source = base / f"{label}.cpp"
+        status = "既存のため skip" if source.exists() else "作成"
+        if status == "作成":
+            source.write_text(template)
+        print(f"{label:>3}: {source.relative_to(REPO_ROOT)} ({status})")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     participated = CONTEST_FLAG in argv
     positional = [a for a in argv if a != CONTEST_FLAG]
@@ -145,18 +201,7 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     contest_id, labels = positional[0].lower(), positional[1:]
-
-    tasks = select(fetch_tasks(contest_id), labels)
-    base = contest_dir(contest_id, participated)
-    failed = False
-    for task in tasks:
-        task_dir = base / task.label
-        task_dir.mkdir(parents=True, exist_ok=True)
-        src = create_source(task_dir, task)
-        samples = download_samples(task_dir, task)
-        failed |= samples == "失敗"
-        print(f"{task.label:>3}: {task_dir.relative_to(REPO_ROOT)}/{SOURCE_NAME} ({src}), サンプル: {samples}")
-    return 1 if failed else 0
+    return new_contest(contest_id, labels) if participated else new_practice(contest_id, labels)
 
 
 if __name__ == "__main__":

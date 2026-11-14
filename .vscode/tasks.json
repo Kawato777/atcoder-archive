@@ -83,7 +83,7 @@
     {
       "id": "contest",
       "type": "promptString",
-      "description": "コンテストID（例: abc380、特定の問題だけなら abc380 a c）"
+      "description": "コンテストID（例: abc380、特定の問題だけなら abc380 a c、コンテスト参加用は --contest abc485）"
     }
   ]
 }
