@@ -33,5 +33,8 @@
       "task": "new: 問題を取得",
       "tooltip": "コンテストの問題ディレクトリとサンプルを取得"
     }
-  ]
+  ],
+  "lldb.adapterEnv": {
+    "LLDB_DEBUGSERVER_PATH": "/Applications/Xcode.app/Contents/SharedFrameworks/LLDB.framework/Versions/A/Resources/debugserver"
+  }
 }
