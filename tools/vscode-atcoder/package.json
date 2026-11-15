@@ -2,7 +2,7 @@
   "name": "atcoder-practice",
   "displayName": "AtCoder Practice",
   "description": "このリポジトリ専用: サイドバーから問題の取得とサンプルテストを行う",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "local",
   "private": true,
   "license": "UNLICENSED",
@@ -35,6 +35,11 @@
           "type": "webview",
           "id": "atcoder.test",
           "name": "テスト"
+        },
+        {
+          "type": "webview",
+          "id": "atcoder.note",
+          "name": "ノート"
         }
       ]
     }
