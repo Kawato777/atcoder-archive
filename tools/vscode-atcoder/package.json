@@ -2,7 +2,7 @@
   "name": "atcoder-practice",
   "displayName": "AtCoder Practice",
   "description": "このリポジトリ専用: サイドバーから問題の取得とサンプルテストを行う",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "local",
   "private": true,
   "license": "UNLICENSED",
