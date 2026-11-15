@@ -1,0 +1,192 @@
+"""scripts/note --apply のテスト。
+
+    python3 -m unittest discover -s scripts/tests
+
+一時ディレクトリに scripts/note と base-note.md をコピーし、その中で実行する（リポジトリのノートには触れない）。
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PROBLEM = "practice/ABC/999/A"
+
+CLAUDE_OUTPUT = """\
+---
+tags: [DP, 二分探索]
+time: O(N log N)
+space: O(N)
+review: true
+---
+## Claude による添削・解説（AI生成）
+<!-- 2026-11-15 Claude が生成。この節より上は本人が書いている -->
+
+### 判定
+正しい。
+
+```cpp
+// --- コードブロック内の区切り線は無視される
+int main() {}
+```
+"""
+
+SECTION = CLAUDE_OUTPUT.split("---\n", 2)[2]
+
+USER_NOTE = """\
+---
+status: 自力AC        # 本番AC / 自力AC / 解説AC / 未AC
+tags: [累積和]        # 大分類と具体的な手法を両方（例: [DP, 桁DP]）
+time: O(N)            # 時間計算量 例: O(N log N)
+space:                # 空間計算量 例: O(N)
+review: false         # 復習対象なら true
+---
+
+## 着眼点
+自分で書いた本文。
+
+## 解法
+```cpp
+## Claude による添削・解説（AI生成）
+```
+"""
+
+
+class NoteApplyTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "scripts").mkdir()
+        shutil.copy(REPO_ROOT / "scripts" / "note", self.root / "scripts" / "note")
+        shutil.copy(REPO_ROOT / "base-note.md", self.root / "base-note.md")
+        (self.root / PROBLEM).mkdir(parents=True)
+        (self.root / PROBLEM / "main.cpp").write_text("// https://atcoder.jp/contests/abc999/tasks/abc999_a\n")
+        self.note = self.root / PROBLEM / "note.md"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def run_note(self, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(self.root / "scripts" / "note"), *args],
+            cwd=self.root,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def apply(self, stdin: str = CLAUDE_OUTPUT, *extra: str) -> dict[str, object]:
+        result = self.run_note("--apply", "--from", "-", *extra, PROBLEM, stdin=stdin)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed: object = json.loads(result.stdout)
+        assert isinstance(parsed, dict)
+        return parsed
+
+    def fm(self, key: str) -> str:
+        line = next(l for l in self.note.read_text().splitlines() if l.startswith(f"{key}:"))
+        return line
+
+    def test_creates_note_when_missing(self) -> None:
+        out = self.apply()
+        self.assertTrue(out["created"])
+        self.assertEqual(out["section"], "added")
+        self.assertEqual(out["filled"], ["tags", "time", "space", "review"])
+        text = self.note.read_text()
+        template = (self.root / "base-note.md").read_text()
+        # 本文は雛形のまま、空行 1 つの後に節が続く
+        body = template.split("---\n", 2)[2]
+        self.assertTrue(text.endswith(body + "\n" + SECTION), text)
+        # コメントは残り、列もそろう
+        self.assertEqual(self.fm("tags"), "tags: [DP, 二分探索]  # 大分類と具体的な手法を両方（例: [DP, 桁DP]）")
+        self.assertEqual(self.fm("time"), "time: O(N log N)      # 時間計算量 例: O(N log N)")
+        self.assertEqual(self.fm("review"), "review: true          # 復習対象なら true")
+        self.assertEqual(self.fm("status"), "status:               # 本番AC / 自力AC / 解説AC / 未AC")
+
+    def test_fills_empty_frontmatter(self) -> None:
+        self.run_note(PROBLEM)
+        out = self.apply()
+        self.assertFalse(out["created"])
+        self.assertEqual(out["filled"], ["tags", "time", "space", "review"])
+        self.assertEqual(out["kept"], [])
+
+    def test_keeps_existing_values_and_reports_diff(self) -> None:
+        self.note.write_text(USER_NOTE)
+        out = self.apply()
+        self.assertEqual(out["filled"], ["space", "review"])
+        self.assertEqual(
+            out["kept"],
+            [
+                {"key": "tags", "current": "[累積和]", "proposed": "[DP, 二分探索]"},
+                {"key": "time", "current": "O(N)", "proposed": "O(N log N)"},
+            ],
+        )
+        self.assertEqual(self.fm("tags"), "tags: [累積和]        # 大分類と具体的な手法を両方（例: [DP, 桁DP]）")
+        self.assertEqual(self.fm("status"), "status: 自力AC        # 本番AC / 自力AC / 解説AC / 未AC")
+        # コードブロック内の見出しは本人の本文として扱い、節は末尾に追加する
+        text = self.note.read_text()
+        self.assertEqual(out["section"], "added")
+        # 見出しより上の本文は 1 文字も変わらない
+        self.assertEqual(text.split("---\n", 2)[2], USER_NOTE.split("---\n", 2)[2] + "\n" + SECTION)
+
+    def test_overwrite(self) -> None:
+        self.note.write_text(USER_NOTE)
+        out = self.apply(CLAUDE_OUTPUT, "--overwrite")
+        self.assertEqual(out["overwritten"], ["tags", "time"])
+        self.assertEqual(out["kept"], [])
+        self.assertEqual(self.fm("time"), "time: O(N log N)      # 時間計算量 例: O(N log N)")
+        self.assertEqual(self.fm("status"), "status: 自力AC        # 本番AC / 自力AC / 解説AC / 未AC")
+
+    def test_status_in_input_is_ignored(self) -> None:
+        self.note.write_text(USER_NOTE)
+        out = self.apply(CLAUDE_OUTPUT.replace("---\ntags", "---\nstatus: 解説AC\ntags", 1), "--overwrite")
+        self.assertEqual(out["ignored"], ["status"])
+        self.assertEqual(self.fm("status"), "status: 自力AC        # 本番AC / 自力AC / 解説AC / 未AC")
+
+    def test_second_apply_replaces_section_idempotently(self) -> None:
+        self.note.write_text(USER_NOTE)
+        self.apply()
+        first = self.note.read_text()
+        out = self.apply()
+        self.assertEqual(out["section"], "replaced")
+        self.assertEqual(self.note.read_text(), first)
+        # 内容が変わったら節だけ差し替わる
+        self.apply(CLAUDE_OUTPUT.replace("正しい。", "惜しい。"))
+        self.assertEqual(self.note.read_text(), first.replace("正しい。", "惜しい。"))
+
+    def test_rejects_invalid_input(self) -> None:
+        self.note.write_text(USER_NOTE)
+        cases = {
+            "frontmatter なし": SECTION,
+            "見出しなし": CLAUDE_OUTPUT.replace("## Claude による添削・解説（AI生成）", "## 判定"),
+            "関係ない内容": "int main() {}\n",
+            "空": "",
+        }
+        for name, stdin in cases.items():
+            with self.subTest(name):
+                result = self.run_note("--apply", "--from", "-", PROBLEM, stdin=stdin)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("エラー", result.stderr)
+                self.assertEqual(self.note.read_text(), USER_NOTE)
+
+    def test_invalid_input_does_not_create_note(self) -> None:
+        result = self.run_note("--apply", "--from", "-", PROBLEM, stdin="hello\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(self.note.exists())
+
+    def test_create_and_info_unchanged(self) -> None:
+        info = json.loads(self.run_note("--info", PROBLEM).stdout)
+        self.assertEqual(info, {"note": str(self.note.resolve()), "exists": False, "tags": []})
+        result = self.run_note("--status", "自力AC", "--tags", "DP,桁DP", PROBLEM)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip().splitlines()[-1], str(self.note.resolve()))
+        self.assertEqual(self.fm("tags"), "tags: [DP, 桁DP]      # 大分類と具体的な手法を両方（例: [DP, 桁DP]）")
+
+
+if __name__ == "__main__":
+    unittest.main()

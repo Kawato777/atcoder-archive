@@ -7,8 +7,17 @@
     scripts/note contest/ABC/484/E.cpp         # 参加した回 -> practice/ABC/484/E/note.md に作る
     scripts/note --status 自力AC --tags DP,二分探索 --time "O(N log N)" --space "O(N)" --review practice/ABC/484/E
     scripts/note --info practice/ABC/484/E     # 作らずに場所・有無・既存のタグを JSON で出す
+    scripts/note --apply practice/ABC/484/E    # Claude（atcoder-review）の出力をクリップボードから取り込む
+    scripts/note --apply --from out.md practice/ABC/484/E   # ファイルから（--from - は標準入力）
 
 --status / --tags / --time / --space / --review は新しく作るときだけ frontmatter に入る（既存のノートは変えない）。
+
+--apply は、先頭の frontmatter と「## Claude による添削・解説（AI生成）」の見出しがある内容だけを受け付ける。
+  - frontmatter は tags / time / space / review だけを見る（status は変えない）。
+    今の値が空のキーだけ埋め、値が入っているキーは差分を出すだけ（--overwrite で上書き）。
+    review は false を空とみなす。
+  - 見出しから末尾までの節は、note.md に既にあれば置き換え、無ければ末尾に追加する。見出しより上の本文は変えない。
+  - note.md が無ければ先に作る。要約は標準エラー出力に、結果は標準出力に JSON で出す。
 
 contest/ はコンテスト終了時点の状態を残す場所なので、ノートは practice/ 側に作る。
 practice/ 側に main.cpp が無いときは、問題URLを frontmatter の url: に書く。
@@ -21,7 +30,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 import unicodedata
 from collections import Counter
@@ -168,6 +179,202 @@ def existing_tags() -> list[str]:
     return [tag for tag, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
+# --- --apply: Claude（atcoder-review）の出力の取り込み ---
+
+AI_HEADING = "## Claude による添削・解説（AI生成）"
+APPLY_KEYS = ("tags", "time", "space", "review")
+FENCE = re.compile(r"^\s{0,3}(```|~~~)")
+
+
+def read_apply_input(source: str | None) -> str:
+    """--from の指定（None: クリップボード、"-": 標準入力、それ以外: ファイル）から読む"""
+    if source == "-":
+        text = sys.stdin.buffer.read().decode("utf-8")
+    elif source is not None:
+        try:
+            text = Path(source).read_text(encoding="utf-8")
+        except OSError as e:
+            raise SystemExit(f"エラー: {source} を読めません: {e.strerror}") from None
+    else:
+        # LANG が無いと pbpaste は日本語を化けさせるので UTF-8 を指定する
+        env = {**os.environ, "LANG": "en_US.UTF-8", "LC_CTYPE": "UTF-8"}
+        try:
+            result = subprocess.run(["pbpaste"], capture_output=True, env=env, check=False)
+        except FileNotFoundError:
+            raise SystemExit("エラー: pbpaste がありません（macOS 以外）。--from <ファイル> か --from - で渡してください") from None
+        if result.returncode != 0:
+            raise SystemExit(f"エラー: pbpaste が失敗しました: {result.stderr.decode('utf-8', 'replace').strip()}")
+        text = result.stdout.decode("utf-8")
+    return text.lstrip("﻿").replace("\r\n", "\n")
+
+
+def split_frontmatter(text: str) -> tuple[list[str], str] | None:
+    """先頭の "---" から次の "---" までの行と、その後ろの本文。frontmatter が無ければ None"""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return lines[1:i], "\n".join(lines[i + 1 :])
+    return None
+
+
+def find_heading(text: str) -> int | None:
+    """コードブロックの外で、行頭に AI_HEADING がある最初の位置（文字オフセット）"""
+    offset = 0
+    in_fence = False
+    for line in text.splitlines(keepends=True):
+        if FENCE.match(line):
+            in_fence = not in_fence
+        elif not in_fence and line.rstrip() == AI_HEADING:
+            return offset
+        offset += len(line)
+    return None
+
+
+def frontmatter_value(line: str) -> str:
+    """"key: 値   # コメント" -> "値" """
+    return re.sub(r"\s+#.*$", "", line.split(":", 1)[1]).strip()
+
+
+def normalize_claude_value(key: str, value: str) -> str | None:
+    """Claude の値を note.md に書く形にする。空なら None"""
+    if key == "tags":
+        m = re.fullmatch(r"\[(.*)\]", value)
+        if m is None:
+            raise SystemExit(f"エラー: 取り込む内容の tags が [A, B] の形ではありません: {value!r}")
+        tags = [validate("tags", t) for t in parse_tags(m[1])]
+        return f"[{', '.join(tags)}]" if tags else None
+    if key == "review":
+        if value.lower() not in ("true", "false"):
+            raise SystemExit(f"エラー: 取り込む内容の review は true か false にしてください: {value!r}")
+        return value.lower()
+    return validate(key, value) if value else None
+
+
+def parse_claude_output(text: str) -> tuple[dict[str, str], list[str], str]:
+    """-> (取り込む frontmatter の値, 無視したキー, 見出しから末尾までの節)"""
+    split = split_frontmatter(text.lstrip("\n"))
+    if split is None:
+        raise SystemExit(
+            "エラー: 取り込む内容の先頭に frontmatter（--- で囲んだ部分）がありません。"
+            "Claude の出力をそのままコピーしてください（何も変更していません）"
+        )
+    fm_lines, body = split
+    heading = find_heading(body)
+    if heading is None:
+        raise SystemExit(f"エラー: 取り込む内容に「{AI_HEADING}」の見出しがありません（何も変更していません）")
+
+    fields: dict[str, str] = {}
+    ignored: list[str] = []
+    for line in fm_lines:
+        if not line.strip() or line.lstrip().startswith("#") or ":" not in line:
+            continue
+        key = line.split(":", 1)[0].strip()
+        if key not in APPLY_KEYS:
+            ignored.append(key)
+            continue
+        value = normalize_claude_value(key, frontmatter_value(line))
+        if value is not None:
+            fields[key] = value
+    return fields, ignored, body[heading:].rstrip() + "\n"
+
+
+def is_empty(key: str, value: str) -> bool:
+    if key == "tags":
+        return value.strip("[] ") == ""
+    if key == "review":
+        return value in ("", "false")
+    return value == ""
+
+
+def same_value(key: str, a: str, b: str) -> bool:
+    if key == "tags":
+        return parse_tags(a.strip("[]")) == parse_tags(b.strip("[]"))
+    return a == b
+
+
+def apply_frontmatter(
+    text: str, fields: dict[str, str], overwrite: bool, note_label: str
+) -> tuple[str, dict[str, list[str]], list[dict[str, str]]]:
+    """-> (新しい note.md, {"filled"|"overwritten"|"unchanged": キー}, 変えなかったキーと差分)"""
+    split = split_frontmatter(text)
+    if split is None:
+        raise SystemExit(f"エラー: {note_label} の先頭に frontmatter がありません")
+    current = {
+        line.split(":", 1)[0]: frontmatter_value(line)
+        for line in split[0]
+        if re.match(rf"^({'|'.join(APPLY_KEYS)}):", line)
+    }
+    result: dict[str, list[str]] = {"filled": [], "overwritten": [], "unchanged": []}
+    kept: list[dict[str, str]] = []
+    for key, proposed in fields.items():
+        if key not in current:
+            raise SystemExit(f"エラー: {note_label} の frontmatter に {key}: の行がありません（何も変更していません）")
+        now = current[key]
+        if same_value(key, now, proposed):
+            result["unchanged"].append(key)
+        elif is_empty(key, now) or overwrite:
+            text = set_field(text, key, proposed)
+            result["overwritten" if not is_empty(key, now) else "filled"].append(key)
+        else:
+            kept.append({"key": key, "current": now, "proposed": proposed})
+    return text, result, kept
+
+
+def apply_section(text: str, section: str) -> tuple[str, str]:
+    """-> (新しい note.md, "replaced" | "added")"""
+    heading = find_heading(text)
+    if heading is not None:
+        return text[:heading] + section, "replaced"
+    if not text.endswith("\n"):
+        text += "\n"
+    if not text.endswith("\n\n"):
+        text += "\n"
+    return text + section, "added"
+
+
+def apply_note(args: argparse.Namespace, note: Path, url: str | None) -> int:
+    # 不正な入力でノートを作ってしまわないよう、先に検証する
+    fields, ignored, section = parse_claude_output(read_apply_input(args.source))
+    label = str(note.relative_to(REPO_ROOT))
+
+    created = not note.exists()
+    if created:
+        note.parent.mkdir(parents=True, exist_ok=True)
+        has_source = (note.parent / SOURCE_NAME).exists()
+        original = render(None if has_source else url, frontmatter_fields(args))
+    else:
+        original = note.read_text(encoding="utf-8")
+
+    text, result, kept = apply_frontmatter(original, fields, args.overwrite, label)
+    text, section_status = apply_section(text, section)
+    if created or text != original:
+        note.write_text(text, encoding="utf-8")
+
+    lines = [f"{label} ({'作成して取り込み' if created else '取り込み'})"]
+    if result["filled"]:
+        lines.append(f"  埋めたキー: {', '.join(result['filled'])}")
+    if result["overwritten"]:
+        lines.append(f"  上書きしたキー: {', '.join(result['overwritten'])}")
+    if result["unchanged"]:
+        lines.append(f"  同じ値だったキー: {', '.join(result['unchanged'])}")
+    if kept:
+        lines.append("  変えなかったキー（--overwrite で上書き）:")
+        lines += [f"    {k['key']}: {k['current']} -> {k['proposed']}" for k in kept]
+    if ignored:
+        lines.append(f"  無視したキー: {', '.join(ignored)}")
+    lines.append(f"  「{AI_HEADING}」の節を{'置き換えました' if section_status == 'replaced' else '追加しました'}")
+    print("\n".join(lines), file=sys.stderr)
+    print(
+        json.dumps(
+            {"note": str(note), "created": created, **result, "kept": kept, "ignored": ignored, "section": section_status},
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="scripts/note", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -179,7 +386,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--time", help="時間計算量（例: O(N log N)）")
     parser.add_argument("--space", help="空間計算量（例: O(N)）")
     parser.add_argument("--review", action="store_true", help="review: true にする")
-    return parser.parse_args(argv)
+    parser.add_argument("--apply", action="store_true", help="Claude（atcoder-review）の出力を note.md に取り込む")
+    parser.add_argument("--from", dest="source", help="--apply で読む内容のファイル（- は標準入力。省略時はクリップボード）")
+    parser.add_argument("--overwrite", action="store_true", help="--apply で、値が入っているキーも上書きする")
+    args = parser.parse_args(argv)
+    if args.apply and args.info:
+        parser.error("--apply と --info は同時に使えません")
+    if not args.apply and (args.source is not None or args.overwrite):
+        parser.error("--from と --overwrite は --apply と一緒に使ってください")
+    return args
 
 
 def main(argv: list[str]) -> int:
@@ -191,6 +406,9 @@ def main(argv: list[str]) -> int:
     if args.info:
         print(json.dumps({"note": str(note), "exists": note.exists(), "tags": existing_tags()}, ensure_ascii=False))
         return 0
+
+    if args.apply:
+        return apply_note(args, note, url)
 
     fields = frontmatter_fields(args)
     if note.exists():
