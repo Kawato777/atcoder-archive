@@ -111,12 +111,13 @@ practice/ABC/380/
 | --- | --- |
 | status | `本番AC` / `自力AC` / `解説AC` / `未AC` から選ぶ |
 | tags | カンマ区切りで入力する。下に出る「候補」（他のノートで使ったタグ。よく使う順）を押すと追加される |
-| complexity | `O(N log N)` のように入力する |
+| 時間計算量（time） | `O(N log N)` のように入力する |
+| 空間計算量（space） | `O(N)` のように入力する |
 | 復習対象（review） | チェックすると `review: true` |
 
 - どれも空のままでよい。作成後に `note.md` の frontmatter を直接書き換えられる
 - フォームで指定できるのは作るときだけ。既に `note.md` があるときはフォームが出ず、**📝 ノートを開く** だけが出る
-- tags と complexity には `#` `[` `]` `,` と「`: `」は使えない（YAML が壊れるため）
+- tags と計算量には `#` `[` `]` `,` と「`: `」は使えない（YAML が壊れるため）
 
 中身は `base-note.md` をコピーし、選んだ値を入れたもの。本文は見出しだけなので自分で書く。
 
@@ -124,7 +125,8 @@ practice/ABC/380/
 ---
 status:               # 本番AC / 自力AC / 解説AC / 未AC
 tags: []              # 例: [DP, 二分探索]
-complexity:           # 例: O(N log N)
+time:                 # 時間計算量 例: O(N log N)
+space:                # 空間計算量 例: O(N)
 review: false         # 復習対象なら true
 ---
 
@@ -169,7 +171,7 @@ oj t -e 1e-6 -c ./main.out -d test
 | 過去問を取得 | **New** ボタン | `./scripts/new abc380`（特定の問題だけなら `./scripts/new abc380 a c`） |
 | コンテスト用に作成 | **New** ボタンで `--contest abc485` と入力 | `./scripts/new --contest abc485` |
 | テスト | **Test** ボタン | `./scripts/test practice/ABC/380/A/main.cpp` |
-| ノートを作る | **Note** ボタン（パスが表示されるので Cmd + クリックで開く。値は空で作る） | `./scripts/note practice/ABC/380/A`（`contest/ABC/484/E.cpp` も指定できる。値は `--status 自力AC --tags DP,二分探索 --complexity "O(N log N)" --review` で指定） |
+| ノートを作る | **Note** ボタン（パスが表示されるので Cmd + クリックで開く。値は空で作る） | `./scripts/note practice/ABC/380/A`（`contest/ABC/484/E.cpp` も指定できる。値は `--status 自力AC --tags DP,二分探索 --time "O(N log N)" --space "O(N)" --review` で指定） |
 
 コマンドパレット（**Cmd + Shift + P**）の **Tasks: Run Task** からも同じタスクを選べる。ほかに次のタスクがある。
 
