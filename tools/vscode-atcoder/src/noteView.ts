@@ -16,7 +16,13 @@ type State = {
   readonly error: string | undefined;
 };
 
-type FromWebview = { readonly type: "openNote" } | { readonly type: "createNote"; readonly fields: NoteFields };
+/** scripts/note --apply で変えなかったキー（既に値が入っていたもの） */
+type KeptField = { readonly key: string; readonly current: string; readonly proposed: string };
+
+type FromWebview =
+  | { readonly type: "openNote" }
+  | { readonly type: "createNote"; readonly fields: NoteFields }
+  | { readonly type: "applyClaude" };
 
 const INITIAL: State = { file: undefined, label: undefined, note: undefined, error: undefined };
 
@@ -35,6 +41,7 @@ const parseNoteFields = (v: unknown): NoteFields | undefined =>
 const parseMessage = (m: unknown): FromWebview | undefined => {
   if (!isRecord(m)) return undefined;
   if (m["type"] === "openNote") return { type: "openNote" };
+  if (m["type"] === "applyClaude") return { type: "applyClaude" };
   if (m["type"] === "createNote") {
     const fields = parseNoteFields(m["fields"]);
     return fields && { type: "createNote", fields };
@@ -51,6 +58,29 @@ const parseNoteInfo = (stdout: string): NoteInfo | undefined => {
     return isRecord(v) && typeof v["note"] === "string" && typeof v["exists"] === "boolean" && isStringArray(v["tags"])
       ? { note: v["note"], exists: v["exists"], tags: v["tags"] }
       : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const parseKeptField = (k: unknown): KeptField | undefined =>
+  isRecord(k) && typeof k["key"] === "string" && typeof k["current"] === "string" && typeof k["proposed"] === "string"
+    ? { key: k["key"], current: k["current"], proposed: k["proposed"] }
+    : undefined;
+
+const parseKept = (v: unknown): readonly KeptField[] | undefined => {
+  if (!Array.isArray(v)) return undefined;
+  const fields = v.map((k: unknown) => parseKeptField(k));
+  return fields.every((f): f is KeptField => f !== undefined) ? fields : undefined;
+};
+
+/** scripts/note --apply の出力（標準出力の JSON）から note.md の場所と変えなかったキーを取り出す */
+const parseApplyResult = (stdout: string): { readonly note: string; readonly kept: readonly KeptField[] } | undefined => {
+  try {
+    const v: unknown = JSON.parse(stdout);
+    if (!isRecord(v) || typeof v["note"] !== "string") return undefined;
+    const kept = parseKept(v["kept"]);
+    return kept && { note: v["note"], kept };
   } catch {
     return undefined;
   }
@@ -89,7 +119,8 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     view.webview.onDidReceiveMessage((raw: unknown) => {
       const m = parseMessage(raw);
       if (m === undefined) return;
-      void this.openNote(m.type === "createNote" ? noteArgs(m.fields) : []);
+      if (m.type === "applyClaude") void this.applyClaude();
+      else void this.openNote(m.type === "createNote" ? noteArgs(m.fields) : []);
     });
     view.onDidChangeVisibility(() => {
       this.post();
@@ -159,6 +190,52 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     await vscode.window.showTextDocument(vscode.Uri.file(note));
     await this.refresh(file);
   }
+
+  /** クリップボードの Claude（atcoder-review）の出力を scripts/note --apply で note.md に取り込み、開く */
+  private async applyClaude(): Promise<void> {
+    const { file } = this.state;
+    if (file === undefined) return;
+    const root = findRepoRoot();
+    if (root === undefined) {
+      this.setState({ error: "scripts/note があるフォルダを開いてください" });
+      return;
+    }
+    const clipboard = await vscode.env.clipboard.readText();
+    const apply = (overwrite: boolean) =>
+      run(path.join(root, "scripts", "note"), ["--apply", "--from", "-", ...(overwrite ? ["--overwrite"] : []), file], root, clipboard);
+
+    const result = await apply(false);
+    if (result.code !== 0) {
+      this.setState({ error: result.stderr.trim() || `scripts/note --apply が失敗しました（終了コード ${result.code}）` });
+      return;
+    }
+    const parsed = parseApplyResult(result.stdout);
+    if (parsed === undefined) {
+      this.setState({ error: `scripts/note --apply の出力を読めません: ${result.stdout.trim()}` });
+      return;
+    }
+    this.setState({ error: undefined });
+    await vscode.window.showTextDocument(vscode.Uri.file(parsed.note));
+    await this.refresh(file);
+    if (parsed.kept.length === 0) {
+      void vscode.window.showInformationMessage("Claude の出力を note.md に取り込みました");
+      return;
+    }
+
+    const diff = parsed.kept.map((k) => `${k.key}: ${k.current} → ${k.proposed}`).join(" / ");
+    const choice = await vscode.window.showInformationMessage(
+      `取り込みました。値が入っていたキーは変えていません（${diff}）`,
+      "上書きする",
+    );
+    if (choice !== "上書きする") return;
+    // 1 回目と同じ内容で取り込み直す（節の置き換えは何度やっても同じ結果になる）
+    const again = await apply(true);
+    if (again.code !== 0) {
+      this.setState({ error: again.stderr.trim() || `scripts/note --apply --overwrite が失敗しました（終了コード ${again.code}）` });
+      return;
+    }
+    void vscode.window.showInformationMessage(`上書きしました: ${parsed.kept.map((k) => k.key).join(", ")}`);
+  }
 }
 
 const BODY = `
@@ -184,12 +261,14 @@ const BODY = `
   <button id="createNote">📝 ノートを作成して開く</button>
 </div>
 <button id="openNote" class="secondary" hidden>📝 ノートを開く</button>
+<button id="applyClaude" class="secondary" hidden title="claude.ai の atcoder-review の出力をコピーしてから押す">📋 Claude の出力を取り込む</button>
 `;
 
 const SCRIPT = `
 const $ = (id) => document.getElementById(id);
 
 $("openNote").addEventListener("click", () => vscode.postMessage({ type: "openNote" }));
+$("applyClaude").addEventListener("click", () => vscode.postMessage({ type: "applyClaude" }));
 $("createNote").addEventListener("click", () => vscode.postMessage({
   type: "createNote",
   fields: {
@@ -221,6 +300,7 @@ window.addEventListener("message", ({ data }) => {
   $("target").textContent = s.label ?? ".cpp ファイルを開いてください";
   $("form").hidden = !info || info.exists;
   $("openNote").hidden = !info || !info.exists;
+  $("applyClaude").hidden = !info;
   $("message").innerHTML =
     s.error ? '<div class="error">' + esc(s.error) + '</div>' :
     !info ? "" :

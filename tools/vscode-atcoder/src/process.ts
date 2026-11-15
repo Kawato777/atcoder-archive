@@ -27,12 +27,18 @@ export const toolEnv = (): NodeJS.ProcessEnv => {
   return { ...process.env, PATH: merged.join(path.delimiter) };
 };
 
-export const run = (command: string, args: readonly string[], cwd: string): Promise<ExecResult> =>
+/** input を渡すと標準入力に書き込む（省略時は何も渡さない） */
+export const run = (command: string, args: readonly string[], cwd: string, input?: string): Promise<ExecResult> =>
   new Promise((resolve) => {
-    execFile(command, args, { cwd, env: toolEnv(), maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const child = execFile(command, args, { cwd, env: toolEnv(), maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
       const code = error === null ? 0 : typeof error.code === "number" ? error.code : 1;
       // コマンド自体が起動できない場合（ENOENT など）も stderr に理由を残す
       const reason = error !== null && typeof error.code !== "number" ? `${error.message}\n` : "";
       resolve({ code, stdout, stderr: reason + stderr });
     });
+    if (input !== undefined) {
+      // 起動失敗や先に終了したときの EPIPE はコールバック側の終了コード・stderr で報告されるので、ここでは拡張機能ホストを落とさないようにだけする
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(input);
+    }
   });
