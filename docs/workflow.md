@@ -5,7 +5,7 @@
 ```
 ATCODER
 ├─ インポート … 種類と番号を選んで「過去問を取得」または「コンテスト用に作成」
-└─ テスト     … 開いている main.cpp を「▶ テスト実行」、結果をサンプルごとに表示
+└─ テスト     … 開いている main.cpp を「▶ テスト実行」、結果をサンプルごとに表示。「📝 ノートを開く」で解法ノート
 ```
 
 ## コンテストの指定
@@ -102,10 +102,31 @@ practice/ABC/380/
 
 **テスト** 欄の **コピーして提出ページへ** を押す。コードがクリップボードにコピーされ、ブラウザで提出ページが開く。貼り付けて、言語に **C++23 (GCC 15.2.0)** を選んで提出する。
 
-### 6. コミットする
+### 6. ノートを書く
+
+**テスト** 欄の **📝 ノートを開く** を押すと、同じディレクトリに `note.md` が作られて開く（既にあればそのまま開く）。中身は `base-note.md` のコピーで、見出しだけが入っている。本文は自分で書く。
+
+```markdown
+---
+status:               # 本番AC / 自力AC / 解説AC / 未AC
+tags: []              # 例: [DP, 二分探索]
+complexity:           # 例: O(N log N)
+review: false         # 復習対象なら true
+---
+
+## 着眼点
+## 解法
+## ハマった点・学び
+```
+
+- 問題URLは `main.cpp` の1行目、日付は git の履歴で分かるので書かない
+- `contest/` の `E.cpp` などを開いて押した場合は、`contest/` には作らず `practice/ABC/484/E/note.md` に作る（`contest/` は終了時点の状態を残す場所のため）。`practice/` 側に `main.cpp` が無いときは、frontmatter に `url:` が入る
+- `practice/` の古い形式（`practice/ABC/483/A.cpp` のように `A.cpp` を直接置く形式）ではノートを作れない
+
+### 7. コミットする
 
 ```sh
-git add practice/ABC/380/A/main.cpp
+git add practice/ABC/380/A/main.cpp practice/ABC/380/A/note.md
 git commit -m "feat:ABC380 A を解いた"
 ```
 
@@ -134,6 +155,7 @@ oj t -e 1e-6 -c ./main.out -d test
 | 過去問を取得 | **New** ボタン | `./scripts/new abc380`（特定の問題だけなら `./scripts/new abc380 a c`） |
 | コンテスト用に作成 | **New** ボタンで `--contest abc485` と入力 | `./scripts/new --contest abc485` |
 | テスト | **Test** ボタン | `./scripts/test practice/ABC/380/A/main.cpp` |
+| ノートを作る | **Note** ボタン（パスが表示されるので Cmd + クリックで開く） | `./scripts/note practice/ABC/380/A`（`contest/ABC/484/E.cpp` も指定できる） |
 
 コマンドパレット（**Cmd + Shift + P**）の **Tasks: Run Task** からも同じタスクを選べる。ほかに次のタスクがある。
 
@@ -144,4 +166,4 @@ oj t -e 1e-6 -c ./main.out -d test
 
 ## 古い解答について
 
-`contest/ABC/484`・`practice/ABC/483`・`practice/ABS` は `scripts/new` を作る前の形式（`A.cpp` を直接置く形式）。`test/` が無いのでテストは使えない。build と[デバッグ](debug.md)はそのまま使える。
+`contest/ABC/484`・`practice/ABC/483`・`practice/ABS` は `scripts/new` を作る前の形式（`A.cpp` を直接置く形式）。`test/` が無いのでテストは使えない。`practice/` の 2 つはノートも作れない。build と[デバッグ](debug.md)はそのまま使える。
