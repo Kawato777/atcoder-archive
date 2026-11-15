@@ -21,6 +21,8 @@
   - 見出しから末尾までの節は、note.md に既にあれば置き換え、無ければ末尾に追加する。見出しより上の本文は変えない。
   - contest/ の解答を指定したとき（または見出しが「## Claude による添削・解説（AI生成・本番）」のとき）は
     本番の節として扱う。本番の節と practice/ の節（復習）は別々に置き換え、もう一方は残す。
+  - 節の先頭（日付コメントの次の行）に、添削したコードへの相対リンク「対象: [...](...)」を入れる。
+    contest/ を指定したときは contest/ の .cpp、practice/ を指定したときは main.cpp へのリンク。
   - note.md が無ければ先に作る。要約は標準エラー出力に、結果は標準出力に JSON で出す。
   - --dry-run では何も書き込まず、取り込み後の note.md の全文を標準出力に出す（要約は標準エラー出力）。
 
@@ -374,6 +376,39 @@ def with_heading(section: str, heading: str) -> str:
     return heading + section[section.index("\n") :] if "\n" in section else heading + "\n"
 
 
+LINK_PREFIX = "対象: "
+
+
+def with_link(section: str, link: tuple[str, str]) -> str:
+    """見出し（と日付コメント）の次の行を "対象: [表示](相対パス)" にする。既にあれば置き換える"""
+    label, href = link
+    lines = section.split("\n")
+    head = 2 if len(lines) > 1 and lines[1].lstrip().startswith("<!--") else 1
+    rest = lines[head:]
+    if rest and rest[0].startswith(LINK_PREFIX):
+        rest = rest[1:]
+    return "\n".join([*lines[:head], f"{LINK_PREFIX}[{label}]({href})", *rest])
+
+
+def existing_link(text: str, heading: str) -> tuple[str, str] | None:
+    """note.md の heading の節にあるリンク (表示, 相対パス)。無ければ None"""
+    found = find_headings(text)
+    ends = [offset for offset, _ in found[1:]] + [len(text)]
+    for (offset, h), end in zip(found, ends):
+        if h == heading:
+            lines = text[offset:end].split("\n")[1:3]
+            m = next((re.fullmatch(r"対象: \[(.*)\]\((.*)\)", l) for l in lines if l.startswith(LINK_PREFIX)), None)
+            return (m[1], m[2]) if m else None
+    return None
+
+
+def source_link(note: Path, source: Path) -> tuple[str, str]:
+    """note.md から source へのリンクの (表示, 相対パス)。表示は practice/ の main.cpp ならファイル名、それ以外はリポジトリ相対"""
+    href = Path(os.path.relpath(source, note.parent)).as_posix()
+    label = href if source.parent == note.parent else source.relative_to(REPO_ROOT).as_posix()
+    return label, href
+
+
 def apply_section(text: str, section: str, contest: bool) -> tuple[str, str]:
     """-> (新しい note.md, "replaced" | "added")
 
@@ -397,7 +432,7 @@ def apply_section(text: str, section: str, contest: bool) -> tuple[str, str]:
     return text + section, "added"
 
 
-def apply_note(args: argparse.Namespace, note: Path, url: str | None, contest: bool) -> int:
+def apply_note(args: argparse.Namespace, note: Path, url: str | None, contest_source: Path | None) -> int:
     # 不正な入力でノートを作ってしまわないよう、先に検証する
     fields, ignored, section = parse_claude_output(read_apply_input(args.source))
     label = str(note.relative_to(REPO_ROOT))
@@ -410,7 +445,17 @@ def apply_note(args: argparse.Namespace, note: Path, url: str | None, contest: b
         original = note.read_text(encoding="utf-8")
 
     text, result, kept = apply_frontmatter(original, fields, args.overwrite, label)
-    contest = contest or section.startswith(AI_HEADING_CONTEST)
+    contest = contest_source is not None or section.startswith(AI_HEADING_CONTEST)
+    # リンク先: contest/ を指定したらその .cpp、practice/ なら main.cpp。
+    # practice/ を指定して本番の見出しの内容を取り込んだときは、どのコードか分からないので今のリンクを引き継ぐ
+    source = contest_source if contest_source is not None else None if contest else note.parent / SOURCE_NAME
+    link = (
+        source_link(note, source)
+        if source is not None and source.exists()
+        else existing_link(text, AI_HEADING_CONTEST if contest else AI_HEADING)
+    )
+    if link is not None:
+        section = with_link(section, link)
     text, section_status = apply_section(text, section, contest)
     if not args.dry_run and (created or text != original):
         note.parent.mkdir(parents=True, exist_ok=True)
@@ -488,7 +533,9 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.apply:
-        return apply_note(args, note, url, contest=url is not None)
+        # resolve は contest/ を指定したときだけ url を返す
+        contest_source = REPO_ROOT / to_repo_relative(args.path) if url is not None else None
+        return apply_note(args, note, url, contest_source)
 
     fields = frontmatter_fields(args)
     if note.exists():

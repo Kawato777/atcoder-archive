@@ -38,6 +38,16 @@ int main() {}
 
 SECTION = CLAUDE_OUTPUT.split("---\n", 2)[2]
 
+
+def linked(section: str, label: str, href: str) -> str:
+    """取り込み後の節（日付コメントの次の行に、添削したコードへのリンクが入る）"""
+    comment = "この節より上は本人が書いている -->\n"
+    return section.replace(comment, f"{comment}対象: [{label}]({href})\n", 1)
+
+
+# practice/ の main.cpp を添削した節を取り込んだ結果
+APPLIED = linked(SECTION, "main.cpp", "main.cpp")
+
 USER_NOTE = """\
 ---
 status: 自力AC        # 本番AC / 自力AC / 解説AC / 未AC
@@ -101,7 +111,7 @@ class NoteApplyTest(unittest.TestCase):
         template = (self.root / "base-note.md").read_text()
         # 本文は雛形のまま、空行 1 つの後に節が続く
         body = template.split("---\n", 2)[2]
-        self.assertTrue(text.endswith(body + "\n" + SECTION), text)
+        self.assertTrue(text.endswith(body + "\n" + APPLIED), text)
         # コメントは残り、列もそろう
         self.assertEqual(self.fm("tags"), "tags: [DP, 二分探索]  # 大分類と具体的な手法を両方（例: [DP, 桁DP]）")
         self.assertEqual(self.fm("time"), "time: O(N log N)      # 時間計算量 例: O(N log N)")
@@ -132,7 +142,7 @@ class NoteApplyTest(unittest.TestCase):
         text = self.note.read_text()
         self.assertEqual(out["section"], "added")
         # 見出しより上の本文は 1 文字も変わらない
-        self.assertEqual(text.split("---\n", 2)[2], USER_NOTE.split("---\n", 2)[2] + "\n" + SECTION)
+        self.assertEqual(text.split("---\n", 2)[2], USER_NOTE.split("---\n", 2)[2] + "\n" + APPLIED)
 
     def test_overwrite(self) -> None:
         self.note.write_text(USER_NOTE)
@@ -183,15 +193,27 @@ class NoteApplyTest(unittest.TestCase):
         contest_output = CLAUDE_OUTPUT.replace("## Claude による添削・解説（AI生成）", contest_heading)
         self.assertEqual(apply_to(PROBLEM, contest_output.replace("正しい。", "本番2"))["section"], "replaced")
 
+        # 本番の節を practice/ から取り込んだので、リンクは今のもの（contest/ の .cpp）を引き継ぐ
         body = USER_NOTE.split("---\n", 2)[2]
+        contest_section = linked(SECTION, "contest/ABC/999/A.cpp", "../../../../contest/ABC/999/A.cpp").replace(
+            "## Claude による添削・解説（AI生成）", contest_heading
+        )
         expected = (
             body
             + "\n"
-            + SECTION.replace("## Claude による添削・解説（AI生成）", contest_heading).replace("正しい。", "本番2")
+            + contest_section.replace("正しい。", "本番2")
             + "\n"
-            + SECTION.replace("正しい。", "復習2")
+            + APPLIED.replace("正しい。", "復習2")
         )
         self.assertEqual(self.note.read_text().split("---\n", 2)[2], expected)
+        # contest/ から取り込み直しても、本番の節のリンクは contest/ の .cpp
+        apply_to(contest, CLAUDE_OUTPUT.replace("正しい。", "本番3"))
+        self.assertIn(
+            contest_section.replace("正しい。", "本番3")
+            + "\n"
+            + APPLIED.replace("正しい。", "復習2"),
+            self.note.read_text(),
+        )
 
     def test_contest_section_goes_before_practice_section(self) -> None:
         self.note.write_text(USER_NOTE)
@@ -200,6 +222,14 @@ class NoteApplyTest(unittest.TestCase):
         self.assertEqual(self.apply(contest_output.replace("正しい。", "本番"))["section"], "added")
         text = self.note.read_text()
         self.assertLess(text.index("本番"), text.index("復習"))
+
+    def test_link_from_claude_is_replaced(self) -> None:
+        self.note.write_text(USER_NOTE)
+        comment = "この節より上は本人が書いている -->\n"
+        self.apply(CLAUDE_OUTPUT.replace(comment, f"{comment}対象: [x.cpp](x.cpp)\n"))
+        text = self.note.read_text()
+        self.assertTrue(text.endswith(APPLIED), text)
+        self.assertNotIn("x.cpp", text)
 
     def test_rejects_invalid_input(self) -> None:
         self.note.write_text(USER_NOTE)
@@ -236,13 +266,14 @@ class NoteApplyTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(self.note.exists())
         self.assertTrue(result.stdout.startswith("---\nstatus:"), result.stdout)
-        self.assertTrue(result.stdout.endswith(SECTION))
+        self.assertTrue(result.stdout.endswith(APPLIED))
         # 問題のディレクトリも作らない（contest/ から作る場合）
         (self.root / "contest/ABC/998").mkdir(parents=True)
         (self.root / "contest/ABC/998/B.cpp").write_text("int main() {}\n")
         result = self.run_note("--apply", "--dry-run", "--from", "-", "contest/ABC/998/B.cpp", stdin=CLAUDE_OUTPUT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("url: https://atcoder.jp/contests/abc998/tasks/abc998_b", result.stdout)
+        self.assertIn("対象: [contest/ABC/998/B.cpp](../../../../contest/ABC/998/B.cpp)\n", result.stdout)
         self.assertFalse((self.root / "practice/ABC/998").exists())
 
     def test_dry_run_requires_apply(self) -> None:
