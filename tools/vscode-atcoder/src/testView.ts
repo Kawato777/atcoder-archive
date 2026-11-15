@@ -19,7 +19,7 @@ type State = {
   readonly error: string | undefined;
 };
 
-type FromWebview = { readonly type: "run" | "openProblem" | "submit" };
+type FromWebview = { readonly type: "run" | "openProblem" | "submit" | "openNote" };
 
 const INITIAL: State = {
   file: undefined,
@@ -42,7 +42,7 @@ const submitUrl = (p: Problem): string =>
   `https://atcoder.jp/contests/${p.contest}/submit?taskScreenName=${encodeURIComponent(p.task)}`;
 
 const isMessage = (m: unknown): m is FromWebview =>
-  typeof m === "object" && m !== null && "type" in m && ["run", "openProblem", "submit"].includes(String(m.type));
+  typeof m === "object" && m !== null && "type" in m && ["run", "openProblem", "submit", "openNote"].includes(String(m.type));
 
 const isCpp = (doc: vscode.TextDocument): boolean => doc.uri.scheme === "file" && doc.fileName.endsWith(".cpp");
 
@@ -69,6 +69,7 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       if (!isMessage(m)) return;
       if (m.type === "run") void this.runTests();
       else if (m.type === "openProblem") void this.openProblem();
+      else if (m.type === "openNote") void this.openNote();
       else void this.submit();
     });
     view.onDidChangeVisibility(() => this.post());
@@ -146,6 +147,26 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     if (problem) await vscode.env.openExternal(vscode.Uri.parse(problemUrl(problem)));
   }
 
+  /** scripts/note で note.md を作り（既存ならそのまま）、エディタで開く */
+  private async openNote(): Promise<void> {
+    const { file } = this.state;
+    if (file === undefined) return;
+    const root = findRepoRoot();
+    if (root === undefined) {
+      this.setState({ error: "scripts/note があるフォルダを開いてください" });
+      return;
+    }
+    const result = await run(path.join(root, "scripts", "note"), [file], root);
+    if (result.code !== 0) {
+      this.setState({ error: result.stderr.trim() || `scripts/note が失敗しました（終了コード ${result.code}）` });
+      return;
+    }
+    // scripts/note は note.md の絶対パスを標準出力の最後の行に出す
+    const note = result.stdout.trim().split("\n").at(-1) ?? "";
+    this.setState({ error: undefined });
+    await vscode.window.showTextDocument(vscode.Uri.file(note));
+  }
+
   /** コードをクリップボードにコピーして提出ページを開く（提出はブラウザで手動） */
   private async submit(): Promise<void> {
     const { file, problem } = this.state;
@@ -162,6 +183,7 @@ const BODY = `
   <button id="run">▶ テスト実行</button>
   <button id="openProblem" class="secondary">問題を開く</button>
   <button id="submit" class="secondary">コピーして提出ページへ</button>
+  <button id="openNote" class="secondary">📝 ノートを開く</button>
 </div>
 <div id="status" class="muted" style="margin-top:8px"></div>
 <div id="results"></div>
@@ -169,7 +191,7 @@ const BODY = `
 
 const SCRIPT = `
 const $ = (id) => document.getElementById(id);
-for (const type of ["run", "openProblem", "submit"]) {
+for (const type of ["run", "openProblem", "submit", "openNote"]) {
   $(type).addEventListener("click", () => vscode.postMessage({ type }));
 }
 
@@ -195,6 +217,7 @@ window.addEventListener("message", ({ data }) => {
   $("run").textContent = s.phase === "build" ? "ビルド中…" : s.phase === "run" ? "実行中…" : "▶ テスト実行";
   $("openProblem").disabled = !s.problem;
   $("submit").disabled = !s.problem || s.phase !== "idle";
+  $("openNote").disabled = !s.file;
 
   const ac = s.results.filter((r) => r.verdict === "AC").length;
   const judged = s.results.filter((r) => r.verdict !== "RUN").length;
