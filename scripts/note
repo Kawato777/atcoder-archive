@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""問題の解法ノート (note.md) を base-note.md から作る。既にあれば上書きしない。
+
+使い方:
+    scripts/note practice/ABC/484/E            # 問題のディレクトリ
+    scripts/note practice/ABC/484/E/main.cpp   # main.cpp でもよい
+    scripts/note contest/ABC/484/E.cpp         # 参加した回 -> practice/ABC/484/E/note.md に作る
+
+contest/ はコンテスト終了時点の状態を残す場所なので、ノートは practice/ 側に作る。
+practice/ 側に main.cpp が無いときは、問題URLを frontmatter の url: に書く。
+A.cpp を直接置く古い形式（practice/ABC/483/A.cpp など）は対象外。
+
+作成したか既存だったかは標準エラー出力に、note.md の絶対パスは標準出力の最後の行に出す。
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+ATCODER = "https://atcoder.jp"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TEMPLATE = REPO_ROOT / "base-note.md"
+NOTE_NAME = "note.md"
+SOURCE_NAME = "main.cpp"
+PRACTICE_DIR = "practice"
+CONTEST_DIR = "contest"
+# scripts/new --contest が作る contest/<シリーズ>/<番号>/<問題>.cpp
+CONTEST_SOURCE = re.compile(r"(ABC|ARC|AGC|AHC)/(\d+)/([A-Za-z0-9]+)\.cpp")
+
+LEGACY_MESSAGE = (
+    "エラー: {path} は A.cpp を直接置く古い形式なので対象外です"
+    "（ノートは practice/<種類>/<番号>/<問題>/ の形式だけで作れます）"
+)
+
+
+def to_repo_relative(arg: str) -> Path:
+    path = Path(arg).resolve()
+    try:
+        return path.relative_to(REPO_ROOT)
+    except ValueError:
+        raise SystemExit(f"エラー: {arg} はリポジトリ ({REPO_ROOT}) の外です") from None
+
+
+def contest_target(relative: Path) -> tuple[Path, str]:
+    """contest/ABC/484/E.cpp -> (practice/ABC/484/E, 問題URL)"""
+    inner = relative.relative_to(CONTEST_DIR).as_posix()
+    m = CONTEST_SOURCE.fullmatch(inner)
+    if m is None:
+        raise SystemExit(
+            f"エラー: {relative} からノートの場所を決められません。"
+            f"contest/ では問題のファイル（例: {CONTEST_DIR}/ABC/484/E.cpp）を指定してください"
+        )
+    series, number, label = m[1], m[2], m[3].upper()
+    contest_id = f"{series.lower()}{number}"
+    url = f"{ATCODER}/contests/{contest_id}/tasks/{contest_id}_{label.lower()}"
+    return Path(PRACTICE_DIR, series, number, label), url
+
+
+def practice_target(relative: Path) -> Path:
+    """practice/ABC/484/E または practice/ABC/484/E/main.cpp -> practice/ABC/484/E"""
+    absolute = REPO_ROOT / relative
+    if absolute.is_file():
+        if absolute.name != SOURCE_NAME:
+            raise SystemExit(LEGACY_MESSAGE.format(path=relative))
+        return relative.parent
+    if not absolute.is_dir():
+        raise SystemExit(f"エラー: {relative} が見つかりません")
+    # contest/ から作ったノートだけがあるディレクトリも問題のディレクトリとみなす
+    if not (absolute / SOURCE_NAME).exists() and not (absolute / NOTE_NAME).exists():
+        raise SystemExit(f"エラー: {relative} に {SOURCE_NAME} がありません。問題のディレクトリを指定してください")
+    return relative
+
+
+def render(url: str | None) -> str:
+    template = TEMPLATE.read_text()
+    if url is None:
+        return template
+    # 先頭の "---" の直後に url: を入れる
+    head, rest = template.split("\n", 1)
+    return f"{head}\nurl: {url}\n{rest}"
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 1:
+        print(__doc__, file=sys.stderr)
+        return 2
+    relative = to_repo_relative(argv[0])
+    top = relative.parts[0] if relative.parts else ""
+    if top == CONTEST_DIR:
+        problem_dir, url = contest_target(relative)
+    elif top == PRACTICE_DIR:
+        problem_dir, url = practice_target(relative), None
+    else:
+        raise SystemExit(f"エラー: {argv[0]} は {PRACTICE_DIR}/ か {CONTEST_DIR}/ の下を指定してください")
+
+    absolute_dir = REPO_ROOT / problem_dir
+    note = absolute_dir / NOTE_NAME
+    if note.exists():
+        status = "既存"
+    else:
+        absolute_dir.mkdir(parents=True, exist_ok=True)
+        has_source = (absolute_dir / SOURCE_NAME).exists()
+        note.write_text(render(None if has_source else url))
+        status = "作成"
+    print(f"{note.relative_to(REPO_ROOT)} ({status})", file=sys.stderr)
+    print(note)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
