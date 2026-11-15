@@ -1,5 +1,5 @@
 ---
-status:               # 本番AC / 自力AC / 解説AC / 未AC
+status: 本番AC              # 本番AC / 自力AC / 解説AC / 未AC
 tags: [実装, Ad-hoc]  # 大分類と具体的な手法を両方（例: [DP, 桁DP]）
 time: O(1)            # 時間計算量 例: O(N log N)
 space: O(1)           # 空間計算量 例: O(N)
