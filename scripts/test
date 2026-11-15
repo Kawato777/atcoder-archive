@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 指定した .cpp を AtCoder と同じ GCC 15 / C++23 でビルドし、同じディレクトリの test/ で oj t を実行する
+#   contest/ABC/484/A.cpp の隣に test/ が無ければ practice/ABC/484/A/test を使う
 #   使い方: scripts/test ABC/380/A/main.cpp
 #           scripts/test --build-only ABC/380/A/main.cpp   # ビルドだけ（VS Code 拡張から使う）
 set -euo pipefail
@@ -20,6 +21,12 @@ SRC="$1"
 DIR="$(cd "$(dirname "$SRC")" && pwd)"
 BIN="$DIR/$(basename "${SRC%.*}").out"
 TEST_DIR="$DIR/test"
+# contest/<種類>/<番号>/<問題>.cpp の隣に test/ が無ければ、practice/ 側で取得したサンプルを使う
+CONTEST_SRC="${DIR#"$REPO_ROOT"/}/$(basename "$SRC")"
+if [[ ! -d "$TEST_DIR" && "$CONTEST_SRC" =~ ^contest/([A-Z]+/[0-9]+)/([A-Za-z0-9]+)\.cpp$ ]]; then
+  PRACTICE_TEST="$REPO_ROOT/practice/${BASH_REMATCH[1]}/$(tr '[:lower:]' '[:upper:]' <<<"${BASH_REMATCH[2]}")/test"
+  [[ -d "$PRACTICE_TEST" ]] && TEST_DIR="$PRACTICE_TEST"
+fi
 CXX="${CXX:-g++-15}"
 
 command -v "$CXX" >/dev/null || { echo "エラー: $CXX がありません。scripts/setup-mac.sh を実行してください" >&2; exit 1; }

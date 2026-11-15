@@ -168,6 +168,8 @@ export const extractBlock = (text: string): string | undefined => {
 };
 
 export const AI_HEADING = "## Claude による添削・解説（AI生成）";
+/** contest/ の解答（本番のコード）への添削の見出し */
+export const AI_HEADING_CONTEST = "## Claude による添削・解説（AI生成・本番）";
 
 /** 取り込み用ブロックの最低限の形式チェック（詳しい検証は scripts/note --apply --dry-run が行う）。問題なければ undefined */
 export const checkBlock = (block: string): string | undefined => {
@@ -175,7 +177,8 @@ export const checkBlock = (block: string): string | undefined => {
   if (lines[0]?.trim() !== "---") return "先頭が frontmatter（---）ではありません";
   const end = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
   if (end < 0) return "frontmatter が閉じていません";
-  if (!lines.slice(end + 1).some((l) => l.trimEnd() === AI_HEADING)) return `「${AI_HEADING}」の見出しがありません`;
+  const isHeading = (l: string): boolean => l.trimEnd() === AI_HEADING || l.trimEnd() === AI_HEADING_CONTEST;
+  if (!lines.slice(end + 1).some(isHeading)) return `「${AI_HEADING}」の見出しがありません`;
   return undefined;
 };
 

@@ -30,6 +30,20 @@ const KILL_AFTER_MS = 6000;
 /** Webview に送る出力の上限（巨大な出力で固まらないように） */
 const DISPLAY_LIMIT = 64 * 1024;
 
+/** contest/<種類>/<番号>/<問題>.cpp -> practice/<種類>/<番号>/<問題>/test（それ以外は undefined） */
+export const practiceTestDir = (root: string, file: string): string | undefined => {
+  const relative = path.relative(root, file).split(path.sep).join("/");
+  const m = /^contest\/([A-Z]+\/\d+)\/([A-Za-z0-9]+)\.cpp$/.exec(relative);
+  return m && m[1] && m[2] ? path.join(root, "practice", ...m[1].split("/"), m[2].toUpperCase(), "test") : undefined;
+};
+
+/** ソースの隣の test/。contest/ で隣に無ければ practice/ 側で取得したサンプル（scripts/test と同じ） */
+export const testDirFor = (root: string, file: string): string => {
+  const beside = path.join(path.dirname(file), "test");
+  const practice = practiceTestDir(root, file);
+  return !existsSync(beside) && practice !== undefined && existsSync(practice) ? practice : beside;
+};
+
 export const listCases = (testDir: string): readonly TestCase[] => {
   if (!existsSync(testDir)) return [];
   const read = (file: string): string | undefined => {

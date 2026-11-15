@@ -52,7 +52,7 @@ VS Code の左端の **AC** アイコンから操作する。
 | 解答コード（`practice/**/main.cpp`・`contest/**/*.cpp`） | **自分だけ**。AI による生成・補完・書き直しはしない（添削で受け取るのは差分の提案まで） |
 | 解法ノート（`note.md`）の本文（着眼点／解法／ハマった点・学び）と `status` | 自分 |
 | `note.md` の `tags` / `time` / `space` / `review` | 自分。Claude の提案を差分で確認して取り込むことがある |
-| `note.md` の `## Claude による添削・解説（AI生成）` 以下 | **AI 生成**（先頭に生成日のコメントが入る） |
+| `note.md` の `## Claude による添削・解説（AI生成）`・`## Claude による添削・解説（AI生成・本番）` の節 | **AI 生成**（先頭に生成日のコメントと、添削したコードへのリンクが入る） |
 | スクリプト（`scripts/`）・VS Code 拡張（`tools/`）・スキル（`.claude/`）・devcontainer・ドキュメントなど、コンテストと関係ない環境まわり | Claude を使って作成 |
 
 - 開催中のコンテストでは AI を使わない（[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)）。添削をもらうのは過去問の練習と、コンテスト終了後の振り返りだけ。

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { type CaseResult, listCases, runCase, TIME_LIMIT_MS } from "./judge";
+import { type CaseResult, listCases, runCase, testDirFor, TIME_LIMIT_MS } from "./judge";
 import { findRepoRoot, run } from "./process";
 import { page } from "./webview";
 
@@ -130,7 +130,7 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     const source = await this.saveAndRead(file);
     const dir = path.dirname(file);
-    const cases = listCases(path.join(dir, "test"));
+    const cases = listCases(testDirFor(root, file));
     if (cases.length === 0) {
       this.setState({ results: [], error: "test/ にサンプルがありません。インポート欄から問題を取得してください" });
       return;

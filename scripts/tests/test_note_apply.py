@@ -159,6 +159,48 @@ class NoteApplyTest(unittest.TestCase):
         self.apply(CLAUDE_OUTPUT.replace("正しい。", "惜しい。"))
         self.assertEqual(self.note.read_text(), first.replace("正しい。", "惜しい。"))
 
+    def test_contest_and_practice_sections_are_kept_separately(self) -> None:
+        contest = "contest/ABC/999/A.cpp"
+        (self.root / "contest/ABC/999").mkdir(parents=True)
+        (self.root / contest).write_text("int main() {}\n")
+        self.note.write_text(USER_NOTE)
+        contest_heading = "## Claude による添削・解説（AI生成・本番）"
+
+        def apply_to(path: str, stdin: str) -> dict[str, object]:
+            result = self.run_note("--apply", "--from", "-", path, stdin=stdin)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            parsed: object = json.loads(result.stdout)
+            assert isinstance(parsed, dict)
+            return parsed
+
+        # contest/ を指定すると本番の見出しになる
+        self.assertEqual(apply_to(contest, CLAUDE_OUTPUT.replace("正しい。", "本番1"))["section"], "added")
+        # practice/ の節（復習）は別に追加され、本番の節は残る
+        self.assertEqual(apply_to(PROBLEM, CLAUDE_OUTPUT.replace("正しい。", "復習1"))["section"], "added")
+        # 復習の節だけ置き換わる
+        self.assertEqual(apply_to(PROBLEM, CLAUDE_OUTPUT.replace("正しい。", "復習2"))["section"], "replaced")
+        # 本番の節だけ置き換わる（見出しが本番なら practice/ を指定しても本番の節）
+        contest_output = CLAUDE_OUTPUT.replace("## Claude による添削・解説（AI生成）", contest_heading)
+        self.assertEqual(apply_to(PROBLEM, contest_output.replace("正しい。", "本番2"))["section"], "replaced")
+
+        body = USER_NOTE.split("---\n", 2)[2]
+        expected = (
+            body
+            + "\n"
+            + SECTION.replace("## Claude による添削・解説（AI生成）", contest_heading).replace("正しい。", "本番2")
+            + "\n"
+            + SECTION.replace("正しい。", "復習2")
+        )
+        self.assertEqual(self.note.read_text().split("---\n", 2)[2], expected)
+
+    def test_contest_section_goes_before_practice_section(self) -> None:
+        self.note.write_text(USER_NOTE)
+        self.apply(CLAUDE_OUTPUT.replace("正しい。", "復習"))
+        contest_output = CLAUDE_OUTPUT.replace("## Claude による添削・解説（AI生成）", "## Claude による添削・解説（AI生成・本番）")
+        self.assertEqual(self.apply(contest_output.replace("正しい。", "本番"))["section"], "added")
+        text = self.note.read_text()
+        self.assertLess(text.index("本番"), text.index("復習"))
+
     def test_rejects_invalid_input(self) -> None:
         self.note.write_text(USER_NOTE)
         cases = {

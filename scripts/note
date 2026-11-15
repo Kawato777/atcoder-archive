@@ -19,6 +19,8 @@
     今の値が空のキーだけ埋め、値が入っているキーは差分を出すだけ（--overwrite で上書き）。
     review は false を空とみなす。
   - 見出しから末尾までの節は、note.md に既にあれば置き換え、無ければ末尾に追加する。見出しより上の本文は変えない。
+  - contest/ の解答を指定したとき（または見出しが「## Claude による添削・解説（AI生成・本番）」のとき）は
+    本番の節として扱う。本番の節と practice/ の節（復習）は別々に置き換え、もう一方は残す。
   - note.md が無ければ先に作る。要約は標準エラー出力に、結果は標準出力に JSON で出す。
   - --dry-run では何も書き込まず、取り込み後の note.md の全文を標準出力に出す（要約は標準エラー出力）。
 
@@ -222,6 +224,9 @@ def history() -> list[dict[str, object]]:
 # --- --apply: Claude（atcoder-review）の出力の取り込み ---
 
 AI_HEADING = "## Claude による添削・解説（AI生成）"
+# contest/ の解答（本番のコード）への添削。practice/ の節（復習）とは別に残す
+AI_HEADING_CONTEST = "## Claude による添削・解説（AI生成・本番）"
+AI_HEADINGS = (AI_HEADING_CONTEST, AI_HEADING)
 APPLY_KEYS = ("tags", "time", "space", "review")
 FENCE = re.compile(r"^\s{0,3}(```|~~~)")
 
@@ -259,17 +264,18 @@ def split_frontmatter(text: str) -> tuple[list[str], str] | None:
     return None
 
 
-def find_heading(text: str) -> int | None:
-    """コードブロックの外で、行頭に AI_HEADING がある最初の位置（文字オフセット）"""
+def find_headings(text: str) -> list[tuple[int, str]]:
+    """コードブロックの外で、行頭に AI_HEADINGS のどれかがある位置（文字オフセット）と見出し"""
+    found: list[tuple[int, str]] = []
     offset = 0
     in_fence = False
     for line in text.splitlines(keepends=True):
         if FENCE.match(line):
             in_fence = not in_fence
-        elif not in_fence and line.rstrip() == AI_HEADING:
-            return offset
+        elif not in_fence and line.rstrip() in AI_HEADINGS:
+            found.append((offset, line.rstrip()))
         offset += len(line)
-    return None
+    return found
 
 
 def frontmatter_value(line: str) -> str:
@@ -301,9 +307,10 @@ def parse_claude_output(text: str) -> tuple[dict[str, str], list[str], str]:
             "Claude の出力をそのままコピーしてください（何も変更していません）"
         )
     fm_lines, body = split
-    heading = find_heading(body)
-    if heading is None:
+    headings = find_headings(body)
+    if not headings:
         raise SystemExit(f"エラー: 取り込む内容に「{AI_HEADING}」の見出しがありません（何も変更していません）")
+    heading = headings[0][0]
 
     fields: dict[str, str] = {}
     ignored: list[str] = []
@@ -362,11 +369,27 @@ def apply_frontmatter(
     return text, result, kept
 
 
-def apply_section(text: str, section: str) -> tuple[str, str]:
-    """-> (新しい note.md, "replaced" | "added")"""
-    heading = find_heading(text)
-    if heading is not None:
-        return text[:heading] + section, "replaced"
+def with_heading(section: str, heading: str) -> str:
+    """節の 1 行目（見出し）を heading にする"""
+    return heading + section[section.index("\n") :] if "\n" in section else heading + "\n"
+
+
+def apply_section(text: str, section: str, contest: bool) -> tuple[str, str]:
+    """-> (新しい note.md, "replaced" | "added")
+
+    AI の節は見出しごとに 1 つ。同じ見出しの節（次の AI の節の手前まで）だけを置き換え、ほかの節は残す。
+    無ければ、本番の節は復習の節の手前に、復習の節は末尾に追加する。"""
+    heading = AI_HEADING_CONTEST if contest else AI_HEADING
+    section = with_heading(section, heading)
+    found = find_headings(text)
+    starts = [offset for offset, _ in found] + [len(text)]
+    for i, (offset, h) in enumerate(found):
+        if h == heading:
+            rest = text[starts[i + 1] :]
+            return text[:offset] + section + ("\n" + rest if rest else ""), "replaced"
+    practice = next((offset for offset, h in found if h == AI_HEADING), None)
+    if contest and practice is not None:
+        return text[:practice] + section + "\n" + text[practice:], "added"
     if not text.endswith("\n"):
         text += "\n"
     if not text.endswith("\n\n"):
@@ -374,7 +397,7 @@ def apply_section(text: str, section: str) -> tuple[str, str]:
     return text + section, "added"
 
 
-def apply_note(args: argparse.Namespace, note: Path, url: str | None) -> int:
+def apply_note(args: argparse.Namespace, note: Path, url: str | None, contest: bool) -> int:
     # 不正な入力でノートを作ってしまわないよう、先に検証する
     fields, ignored, section = parse_claude_output(read_apply_input(args.source))
     label = str(note.relative_to(REPO_ROOT))
@@ -387,7 +410,8 @@ def apply_note(args: argparse.Namespace, note: Path, url: str | None) -> int:
         original = note.read_text(encoding="utf-8")
 
     text, result, kept = apply_frontmatter(original, fields, args.overwrite, label)
-    text, section_status = apply_section(text, section)
+    contest = contest or section.startswith(AI_HEADING_CONTEST)
+    text, section_status = apply_section(text, section, contest)
     if not args.dry_run and (created or text != original):
         note.parent.mkdir(parents=True, exist_ok=True)
         note.write_text(text, encoding="utf-8")
@@ -405,7 +429,8 @@ def apply_note(args: argparse.Namespace, note: Path, url: str | None) -> int:
         lines += [f"    {k['key']}: {k['current']} -> {k['proposed']}" for k in kept]
     if ignored:
         lines.append(f"  無視したキー: {', '.join(ignored)}")
-    lines.append(f"  「{AI_HEADING}」の節を{'置き換えました' if section_status == 'replaced' else '追加しました'}")
+    heading = AI_HEADING_CONTEST if contest else AI_HEADING
+    lines.append(f"  「{heading}」の節を{'置き換えました' if section_status == 'replaced' else '追加しました'}")
     print("\n".join(lines), file=sys.stderr)
     if args.dry_run:
         sys.stdout.write(text)
@@ -463,7 +488,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.apply:
-        return apply_note(args, note, url)
+        return apply_note(args, note, url, contest=url is not None)
 
     fields = frontmatter_fields(args)
     if note.exists():

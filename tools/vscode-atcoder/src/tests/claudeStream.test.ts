@@ -102,6 +102,10 @@ describe("extractBlock / checkBlock", () => {
     assert.match(checkBlock("---\ntags: []\n---\n## 判定\n") ?? "", /見出しがありません/);
   });
 
+  it("本番（contest/）の見出しも受け付ける", () => {
+    assert.equal(checkBlock("---\ntags: []\n---\n## Claude による添削・解説（AI生成・本番）\n### 判定\n"), undefined);
+  });
+
   it("ブロックが無い出力", () => {
     const text = finalText(load("stream-no-block.jsonl"));
     assert.equal(text, "コンテストが開催中のため添削できません。");
