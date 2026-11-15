@@ -5,6 +5,10 @@
     scripts/note practice/ABC/484/E            # 問題のディレクトリ
     scripts/note practice/ABC/484/E/main.cpp   # main.cpp でもよい
     scripts/note contest/ABC/484/E.cpp         # 参加した回 -> practice/ABC/484/E/note.md に作る
+    scripts/note --status 自力AC --tags DP,二分探索 --complexity "O(N log N)" --review practice/ABC/484/E
+    scripts/note --info practice/ABC/484/E     # 作らずに場所・有無・既存のタグを JSON で出す
+
+--status / --tags / --complexity / --review は新しく作るときだけ frontmatter に入る（既存のノートは変えない）。
 
 contest/ はコンテスト終了時点の状態を残す場所なので、ノートは practice/ 側に作る。
 practice/ 側に main.cpp が無いときは、問題URLを frontmatter の url: に書く。
@@ -15,8 +19,12 @@ A.cpp を直接置く古い形式（practice/ABC/483/A.cpp など）は対象外
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import sys
+import unicodedata
+from collections import Counter
 from pathlib import Path
 
 ATCODER = "https://atcoder.jp"
@@ -28,6 +36,13 @@ PRACTICE_DIR = "practice"
 CONTEST_DIR = "contest"
 # scripts/new --contest が作る contest/<シリーズ>/<番号>/<問題>.cpp
 CONTEST_SOURCE = re.compile(r"(ABC|ARC|AGC|AHC)/(\d+)/([A-Za-z0-9]+)\.cpp")
+STATUSES = ("本番AC", "自力AC", "解説AC", "未AC")
+# frontmatter の "tags: [DP, 二分探索]" の行
+TAGS_LINE = re.compile(r"^tags:\s*\[(.*?)\]", re.MULTILINE)
+# frontmatter の値に入れると YAML として壊れる文字
+# base-note.md でコメント (#) が始まる列
+COMMENT_COLUMN = 22
+UNSAFE_VALUE = re.compile(r"[#\[\],]|:\s|:$|^\s|\s$")
 
 LEGACY_MESSAGE = (
     "エラー: {path} は A.cpp を直接置く古い形式なので対象外です"
@@ -73,36 +88,114 @@ def practice_target(relative: Path) -> Path:
     return relative
 
 
-def render(url: str | None) -> str:
-    template = TEMPLATE.read_text()
+def resolve(arg: str) -> tuple[Path, str | None]:
+    """指定されたパス -> (ノートを置く問題のディレクトリ（リポジトリ相対）, contest/ から来たときの問題URL)"""
+    relative = to_repo_relative(arg)
+    top = relative.parts[0] if relative.parts else ""
+    if top == CONTEST_DIR:
+        return contest_target(relative)
+    if top == PRACTICE_DIR:
+        return practice_target(relative), None
+    raise SystemExit(f"エラー: {arg} は {PRACTICE_DIR}/ か {CONTEST_DIR}/ の下を指定してください")
+
+
+def parse_tags(text: str) -> list[str]:
+    """"DP, 二分探索" / "DP、二分探索" -> ["DP", "二分探索"]（空は除き、重複は最初の 1 つだけ残す）"""
+    tags = [t.strip() for t in re.split(r"[,、]", text)]
+    return list(dict.fromkeys(t for t in tags if t))
+
+
+def validate(key: str, value: str) -> str:
+    if UNSAFE_VALUE.search(value):
+        raise SystemExit(f"エラー: {key} に # [ ] , と「: 」、前後の空白は使えません: {value!r}")
+    return value
+
+
+def display_width(text: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in text)
+
+
+def set_field(text: str, key: str, value: str) -> str:
+    """"status:               # コメント" の値だけを置き換え、コメントは残す"""
+    pattern = re.compile(rf"^{key}:[^#\n]*?(\s*#.*)?$", re.MULTILINE)
+    if pattern.search(text) is None:
+        raise SystemExit(f"エラー: {TEMPLATE.name} に {key}: の行がありません")
+
+    def replace(m: re.Match[str]) -> str:
+        comment = (m[1] or "").strip()
+        field = f"{key}: {value}"
+        # 雛形と同じく、コメントの位置をそろえる（全角文字は幅 2 として数える）
+        padding = " " * max(COMMENT_COLUMN - display_width(field), 1)
+        return f"{field}{padding}{comment}" if comment else field
+
+    return pattern.sub(replace, text, count=1)
+
+
+def render(url: str | None, fields: dict[str, str]) -> str:
+    text = TEMPLATE.read_text()
+    for key, value in fields.items():
+        text = set_field(text, key, value)
     if url is None:
-        return template
+        return text
     # 先頭の "---" の直後に url: を入れる
-    head, rest = template.split("\n", 1)
+    head, rest = text.split("\n", 1)
     return f"{head}\nurl: {url}\n{rest}"
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) != 1:
-        print(__doc__, file=sys.stderr)
-        return 2
-    relative = to_repo_relative(argv[0])
-    top = relative.parts[0] if relative.parts else ""
-    if top == CONTEST_DIR:
-        problem_dir, url = contest_target(relative)
-    elif top == PRACTICE_DIR:
-        problem_dir, url = practice_target(relative), None
-    else:
-        raise SystemExit(f"エラー: {argv[0]} は {PRACTICE_DIR}/ か {CONTEST_DIR}/ の下を指定してください")
+def frontmatter_fields(args: argparse.Namespace) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    if args.status is not None:
+        fields["status"] = args.status
+    if args.tags is not None:
+        tags = [validate("tags", t) for t in parse_tags(args.tags)]
+        fields["tags"] = f"[{', '.join(tags)}]"
+    if args.complexity is not None and args.complexity.strip():
+        fields["complexity"] = validate("complexity", args.complexity.strip())
+    if args.review:
+        fields["review"] = "true"
+    return fields
 
+
+def existing_tags() -> list[str]:
+    """practice/ 以下のノートで使われているタグ（使われている回数が多い順）"""
+    counts: Counter[str] = Counter()
+    for note in (REPO_ROOT / PRACTICE_DIR).rglob(NOTE_NAME):
+        m = TAGS_LINE.search(note.read_text())
+        if m:
+            counts.update(parse_tags(m[1]))
+    return [tag for tag, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="scripts/note", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("path", help="問題のディレクトリ、main.cpp、または contest/ の <問題>.cpp")
+    parser.add_argument("--info", action="store_true", help="作らずに場所・有無・既存のタグを JSON で出す")
+    parser.add_argument("--status", choices=STATUSES)
+    parser.add_argument("--tags", help="カンマ区切り（例: DP,二分探索）")
+    parser.add_argument("--complexity", help="例: O(N log N)")
+    parser.add_argument("--review", action="store_true", help="review: true にする")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    problem_dir, url = resolve(args.path)
     absolute_dir = REPO_ROOT / problem_dir
     note = absolute_dir / NOTE_NAME
+
+    if args.info:
+        print(json.dumps({"note": str(note), "exists": note.exists(), "tags": existing_tags()}, ensure_ascii=False))
+        return 0
+
+    fields = frontmatter_fields(args)
     if note.exists():
-        status = "既存"
+        status = "既存" + ("。指定した status / tags などは反映していません" if fields else "")
     else:
         absolute_dir.mkdir(parents=True, exist_ok=True)
         has_source = (absolute_dir / SOURCE_NAME).exists()
-        note.write_text(render(None if has_source else url))
+        note.write_text(render(None if has_source else url, fields))
         status = "作成"
     print(f"{note.relative_to(REPO_ROOT)} ({status})", file=sys.stderr)
     print(note)
