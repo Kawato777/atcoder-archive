@@ -1,14 +1,21 @@
 import * as vscode from "vscode";
 import { ImportViewProvider } from "./importView";
 import { NoteViewProvider } from "./noteView";
+import { PREVIEW_SCHEME, PreviewContentProvider } from "./reviewPanel";
 import { TestViewProvider } from "./testView";
 
 export const activate = (context: vscode.ExtensionContext): void => {
   const testView = new TestViewProvider();
-  const noteView = new NoteViewProvider();
+  // Claude で添削したときの、適用後の note.md（差分表示の右側）
+  const preview = new PreviewContentProvider();
+  const output = vscode.window.createOutputChannel("AtCoder: Claude");
+  const noteView = new NoteViewProvider(preview, output);
   context.subscriptions.push(
     testView,
     noteView,
+    preview,
+    output,
+    vscode.workspace.registerTextDocumentContentProvider(PREVIEW_SCHEME, preview),
     vscode.window.registerWebviewViewProvider("atcoder.import", new ImportViewProvider()),
     // 別の欄を開いている間も実行結果を保持する
     vscode.window.registerWebviewViewProvider("atcoder.test", testView, {

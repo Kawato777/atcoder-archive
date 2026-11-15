@@ -179,6 +179,61 @@ class NoteApplyTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertFalse(self.note.exists())
 
+    def test_dry_run_prints_result_without_writing(self) -> None:
+        self.note.write_text(USER_NOTE)
+        result = self.run_note("--apply", "--dry-run", "--from", "-", PROBLEM, stdin=CLAUDE_OUTPUT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.note.read_text(), USER_NOTE)
+        self.assertIn("--dry-run", result.stderr)
+        # 標準出力は実際に取り込んだときの全文と一致する
+        self.apply()
+        self.assertEqual(result.stdout, self.note.read_text())
+
+    def test_dry_run_does_not_create_note(self) -> None:
+        result = self.run_note("--apply", "--dry-run", "--overwrite", "--from", "-", PROBLEM, stdin=CLAUDE_OUTPUT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.note.exists())
+        self.assertTrue(result.stdout.startswith("---\nstatus:"), result.stdout)
+        self.assertTrue(result.stdout.endswith(SECTION))
+        # 問題のディレクトリも作らない（contest/ から作る場合）
+        (self.root / "contest/ABC/998").mkdir(parents=True)
+        (self.root / "contest/ABC/998/B.cpp").write_text("int main() {}\n")
+        result = self.run_note("--apply", "--dry-run", "--from", "-", "contest/ABC/998/B.cpp", stdin=CLAUDE_OUTPUT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("url: https://atcoder.jp/contests/abc998/tasks/abc998_b", result.stdout)
+        self.assertFalse((self.root / "practice/ABC/998").exists())
+
+    def test_dry_run_requires_apply(self) -> None:
+        result = self.run_note("--dry-run", PROBLEM)
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(self.note.exists())
+
+    def test_history(self) -> None:
+        self.note.write_text(USER_NOTE)
+        other = self.root / "practice/ABC/998/B/note.md"
+        other.parent.mkdir(parents=True)
+        other.write_text("---\nurl: https://atcoder.jp/contests/abc998/tasks/abc998_b\nstatus:   # c\ntags: []\n---\n")
+        result = self.run_note("--history")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            json.loads(result.stdout),
+            [
+                {
+                    "path": "practice/ABC/998/B/note.md",
+                    "url": "https://atcoder.jp/contests/abc998/tasks/abc998_b",
+                    "status": None,
+                    "tags": [],
+                },
+                {
+                    "path": f"{PROBLEM}/note.md",
+                    "url": "https://atcoder.jp/contests/abc999/tasks/abc999_a",
+                    "status": "自力AC",
+                    "tags": ["累積和"],
+                },
+            ],
+        )
+        self.assertEqual(self.run_note("--history", PROBLEM).returncode, 2)
+
     def test_create_and_info_unchanged(self) -> None:
         info = json.loads(self.run_note("--info", PROBLEM).stdout)
         self.assertEqual(info, {"note": str(self.note.resolve()), "exists": False, "tags": []})

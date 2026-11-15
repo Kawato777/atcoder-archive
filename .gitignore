@@ -87,3 +87,6 @@ tools/vscode-atcoder/out/
 
 # Python
 __pycache__/
+
+# Claude Code の作業用 worktree
+.claude/worktrees/

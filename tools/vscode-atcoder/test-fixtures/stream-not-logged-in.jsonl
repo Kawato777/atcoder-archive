@@ -1,0 +1,3 @@
+{"type": "system", "subtype": "init", "cwd": "/repo", "session_id": "00000000-0000-0000-0000-000000000000", "tools": ["Read", "Bash"], "model": "claude-sonnet-5-5", "permissionMode": "default"}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Not logged in · Please run /login"}]}, "session_id": "00000000-0000-0000-0000-000000000000", "error": "authentication_failed"}
+{"type": "result", "subtype": "success", "is_error": true, "duration_ms": 10, "num_turns": 1, "result": "Not logged in · Please run /login", "session_id": "00000000-0000-0000-0000-000000000000", "total_cost_usd": 0}

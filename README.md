@@ -45,7 +45,15 @@ VS Code の左端の **AC** アイコンから操作する。
 
 ## AI（Claude）の利用について
 
-- リポジトリの初期化、Codespaces / devcontainer の設定、ビルドタスク、README などの **コンテストと関係ない環境まわり** は Claude を使って作成している。
-- **解答コード（`main.cpp`・`contest/` の `*.cpp`）は自分で書いており、AI は使っていない。**
-- 解法ノート（`note.md`）の本文と status は自分で書いている。tags / time / space は Claude の提案を参考にすることがある。`## Claude による添削・解説（AI生成）` 以下は AI が生成したもの。
-- 開催中のコンテストでは AI を使わない（[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)）。添削をもらうのは過去問の練習だけ。
+**解答コードは自分で書いており、AI は使っていない。** AI を使うのは、環境まわりの作成と、解いた後の添削・解説だけ。
+
+| 対象 | 書いた人 |
+| --- | --- |
+| 解答コード（`practice/**/main.cpp`・`contest/**/*.cpp`） | **自分だけ**。AI による生成・補完・書き直しはしない（添削で受け取るのは差分の提案まで） |
+| 解法ノート（`note.md`）の本文（着眼点／解法／ハマった点・学び）と `status` | 自分 |
+| `note.md` の `tags` / `time` / `space` / `review` | 自分。Claude の提案を差分で確認して取り込むことがある |
+| `note.md` の `## Claude による添削・解説（AI生成）` 以下 | **AI 生成**（先頭に生成日のコメントが入る） |
+| スクリプト（`scripts/`）・VS Code 拡張（`tools/`）・スキル（`.claude/`）・devcontainer・ドキュメントなど、コンテストと関係ない環境まわり | Claude を使って作成 |
+
+- 開催中のコンテストでは AI を使わない（[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)）。添削をもらうのは過去問の練習と、コンテスト終了後の振り返りだけ。
+- 添削は、ノート欄の **🤖 Claude で添削** ボタン（裏で Claude Code を非対話で起動）か claude.ai のスキル `atcoder-review` で行う。ボタンから起動した Claude にはファイルの編集と git を禁止しており、`note.md` への反映は差分を見て自分で適用する（[使い方](docs/workflow.md#claude-で添削をもらう)）。

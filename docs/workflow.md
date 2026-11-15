@@ -148,20 +148,42 @@ review: false         # 復習対象なら true
 
 #### Claude で添削をもらう
 
-本文を自分で書いた後、claude.ai のスキル `atcoder-review` で添削・解説をもらえる。
+本文を自分で書いた後、スキル `atcoder-review` で添削・解説をもらえる。返ってくるのは、判定・添削（修正は差分の提案まで）・解説・過去ノートとの照合と、tags / time / space / review の提案。
 
-1. 問題URLと `main.cpp` のパス（または中身）を渡す
+**VS Code から（Claude Code）**
+
+前提: [Claude Code](https://code.claude.com/docs/en/overview) をインストールし、ターミナルで一度 `claude` を起動して `/login` しておく。
+
+1. 添削したい `main.cpp`（`contest/` の `E.cpp` なども可）を開く
+2. **ノート** 欄の **🤖 Claude で添削** を押す。裏で `claude -p` が起動し、欄に「問題文を取得中」「サンプルでテスト実行中」などの状況が出る（**キャンセル** で止められる）
+   - `contest/` の解答では、起動前に「コンテストは終了していますか？」と確認される
+3. 終わると、添削・解説のパネルと、今の `note.md` と適用後の差分が開く
+4. 差分を確認して、パネルの **適用** を押すと `note.md` に取り込まれて開く。値が入っている tags なども Claude の提案で置き換えるなら **上書きして適用**
+
+- Claude に許しているのは、ファイルの読み取り・`./scripts/test`・`./scripts/note --history` / `--info`・AtCoder のページの取得・Web 検索だけ。ファイルの編集と git は禁止しているので、`note.md` を書き換えるのは **適用** を押したときだけ
+- `.claude/skills/atcoder-review/` のスキルを使う。ターミナルの `claude` で「`practice/ABC/380/A/main.cpp` を atcoder-review で添削して」と頼んでも同じ形式で返る
+- 失敗したとき（`claude` が見つからない／未ログイン／タイムアウト／取り込み用ブロックが無い）は理由が通知に出る。**出力を表示** で Claude の生の出力を確認できる（出力パネルの「AtCoder: Claude」）
+
+| 設定 | 既定 | 内容 |
+| --- | --- | --- |
+| `atcoder.claude.model` | `sonnet` | 使うモデル（`sonnet` / `opus`） |
+| `atcoder.claude.timeoutSec` | `300` | これを超えたら止める（秒） |
+| `atcoder.claude.path` | `claude` | `claude` が見つからないと言われたら絶対パス（`which claude` の結果）を指定する |
+
+**claude.ai から**
+
+1. claude.ai のスキル `atcoder-review` に、問題URLと `main.cpp` のパス（または中身）を渡す
 2. 返ってきたコピペ用ブロック（`---` で始まる frontmatter と `## Claude による添削・解説（AI生成）` の節）をコピーする
 3. その問題の `main.cpp` を開いた状態で、**ノート** 欄の **📋 Claude の出力を取り込む** を押す。`note.md` に取り込まれて開く
 
-取り込みでは次のように書き換わる（`note.md` が無ければ先に作る）。
+どちらの方法でも、取り込みでは次のように書き換わる（`note.md` が無ければ先に作る）。
 
 - frontmatter は `tags` `time` `space` `review` だけ。**status は変えない**
 - 今の値が空のキー（`review` は `false` も空とみなす）は Claude の値で埋める。値が入っているキーは変えずに通知で知らせ、**上書きする** を押したときだけ上書きする
 - `## Claude による添削・解説（AI生成）` の節が既にあれば、その見出しから末尾までを置き換える（何度取り込んでも同じ結果になる）。無ければ末尾に足す。見出しより上の本文は変えない
 - frontmatter か見出しが無い内容（関係ないものをコピーしていた場合など）はエラーになり、何も変えない
 
-ターミナルなら `./scripts/note --apply practice/ABC/380/A`（クリップボードから読む）。ファイルからは `--from out.md`、標準入力からは `--from -`、値が入っているキーも上書きするなら `--overwrite` を付ける。
+ターミナルなら `./scripts/note --apply practice/ABC/380/A`（クリップボードから読む）。ファイルからは `--from out.md`、標準入力からは `--from -`、値が入っているキーも上書きするなら `--overwrite` を付ける。`--dry-run` を付けると書き込まずに取り込み後の全文を出す。`./scripts/note --history` は全ノートの path / url / status / tags を JSON で出す（過去ノートとの照合に使う）。
 
 **開催中のコンテスト（ABC / ARC / AGC）の問題には使わない**（[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)）。過去問の練習と、コンテスト終了後の振り返りだけに使う。
 
