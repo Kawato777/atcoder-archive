@@ -5,10 +5,10 @@
     scripts/note practice/ABC/484/E            # 問題のディレクトリ
     scripts/note practice/ABC/484/E/main.cpp   # main.cpp でもよい
     scripts/note contest/ABC/484/E.cpp         # 参加した回 -> practice/ABC/484/E/note.md に作る
-    scripts/note --status 自力AC --tags DP,二分探索 --complexity "O(N log N)" --review practice/ABC/484/E
+    scripts/note --status 自力AC --tags DP,二分探索 --time "O(N log N)" --space "O(N)" --review practice/ABC/484/E
     scripts/note --info practice/ABC/484/E     # 作らずに場所・有無・既存のタグを JSON で出す
 
---status / --tags / --complexity / --review は新しく作るときだけ frontmatter に入る（既存のノートは変えない）。
+--status / --tags / --time / --space / --review は新しく作るときだけ frontmatter に入る（既存のノートは変えない）。
 
 contest/ はコンテスト終了時点の状態を残す場所なので、ノートは practice/ 側に作る。
 practice/ 側に main.cpp が無いときは、問題URLを frontmatter の url: に書く。
@@ -149,8 +149,10 @@ def frontmatter_fields(args: argparse.Namespace) -> dict[str, str]:
     if args.tags is not None:
         tags = [validate("tags", t) for t in parse_tags(args.tags)]
         fields["tags"] = f"[{', '.join(tags)}]"
-    if args.complexity is not None and args.complexity.strip():
-        fields["complexity"] = validate("complexity", args.complexity.strip())
+    for key in ("time", "space"):
+        value: str | None = getattr(args, key)
+        if value is not None and value.strip():
+            fields[key] = validate(key, value.strip())
     if args.review:
         fields["review"] = "true"
     return fields
@@ -174,7 +176,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--info", action="store_true", help="作らずに場所・有無・既存のタグを JSON で出す")
     parser.add_argument("--status", choices=STATUSES)
     parser.add_argument("--tags", help="カンマ区切り（例: DP,二分探索）")
-    parser.add_argument("--complexity", help="例: O(N log N)")
+    parser.add_argument("--time", help="時間計算量（例: O(N log N)）")
+    parser.add_argument("--space", help="空間計算量（例: O(N)）")
     parser.add_argument("--review", action="store_true", help="review: true にする")
     return parser.parse_args(argv)
 

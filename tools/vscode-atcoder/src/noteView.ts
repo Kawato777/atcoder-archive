@@ -7,7 +7,7 @@ import { page } from "./webview";
 type NoteInfo = { readonly note: string; readonly exists: boolean; readonly tags: readonly string[] };
 
 /** ノート作成時に frontmatter に入れる値（空なら雛形のまま） */
-type NoteFields = { readonly status: string; readonly tags: string; readonly complexity: string; readonly review: boolean };
+type NoteFields = { readonly status: string; readonly tags: string; readonly time: string; readonly space: string; readonly review: boolean };
 
 type State = {
   readonly file: string | undefined; // 絶対パス
@@ -26,9 +26,10 @@ const parseNoteFields = (v: unknown): NoteFields | undefined =>
   isRecord(v) &&
   typeof v["status"] === "string" &&
   typeof v["tags"] === "string" &&
-  typeof v["complexity"] === "string" &&
+  typeof v["time"] === "string" &&
+  typeof v["space"] === "string" &&
   typeof v["review"] === "boolean"
-    ? { status: v["status"], tags: v["tags"], complexity: v["complexity"], review: v["review"] }
+    ? { status: v["status"], tags: v["tags"], time: v["time"], space: v["space"], review: v["review"] }
     : undefined;
 
 const parseMessage = (m: unknown): FromWebview | undefined => {
@@ -59,7 +60,8 @@ const parseNoteInfo = (stdout: string): NoteInfo | undefined => {
 const noteArgs = (f: NoteFields): readonly string[] => [
   ...(f.status === "" ? [] : ["--status", f.status]),
   ...(f.tags.trim() === "" ? [] : ["--tags", f.tags]),
-  ...(f.complexity.trim() === "" ? [] : ["--complexity", f.complexity]),
+  ...(f.time.trim() === "" ? [] : ["--time", f.time]),
+  ...(f.space.trim() === "" ? [] : ["--space", f.space]),
   ...(f.review ? ["--review"] : []),
 ];
 
@@ -174,8 +176,10 @@ const BODY = `
   <label for="tags">tags（カンマ区切り）</label>
   <input id="tags" placeholder="DP, 二分探索" autocomplete="off">
   <div id="suggestions" class="muted" style="margin-top:4px"></div>
-  <label for="complexity">complexity</label>
-  <input id="complexity" placeholder="O(N log N)" autocomplete="off">
+  <label for="time">時間計算量（time）</label>
+  <input id="time" placeholder="O(N log N)" autocomplete="off">
+  <label for="space">空間計算量（space）</label>
+  <input id="space" placeholder="O(N)" autocomplete="off">
   <label><input type="checkbox" id="review" style="width:auto;vertical-align:middle"> 復習対象（review）</label>
   <button id="createNote">📝 ノートを作成して開く</button>
 </div>
@@ -191,7 +195,8 @@ $("createNote").addEventListener("click", () => vscode.postMessage({
   fields: {
     status: $("status").value,
     tags: $("tags").value,
-    complexity: $("complexity").value,
+    time: $("time").value,
+    space: $("space").value,
     review: $("review").checked,
   },
 }));
@@ -224,7 +229,8 @@ window.addEventListener("message", ({ data }) => {
     formFor = info.note;
     $("status").value = "";
     $("tags").value = "";
-    $("complexity").value = "";
+    $("time").value = "";
+    $("space").value = "";
     $("review").checked = false;
   }
   $("suggestions").innerHTML = !info || info.tags.length === 0 ? "" :

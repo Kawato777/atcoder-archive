@@ -1,7 +1,8 @@
 ---
 status:               # 本番AC / 自力AC / 解説AC / 未AC
 tags: []              # 例: [DP, 二分探索]
-complexity:           # 例: O(N log N)
+time:                 # 時間計算量 例: O(N log N)
+space:                # 空間計算量 例: O(N)
 review: false         # 復習対象なら true
 ---
 
