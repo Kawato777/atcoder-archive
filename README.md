@@ -46,4 +46,6 @@ VS Code の左端の **AC** アイコンから操作する。
 ## AI（Claude）の利用について
 
 - リポジトリの初期化、Codespaces / devcontainer の設定、ビルドタスク、README などの **コンテストと関係ない環境まわり** は Claude を使って作成している。
-- **コンテストの解答コードと解法ノート（`note.md`）は自分で書いており、AI は使っていない。**
+- **解答コード（`main.cpp`・`contest/` の `*.cpp`）は自分で書いており、AI は使っていない。**
+- 解法ノート（`note.md`）の本文と status は自分で書いている。tags / time / space は Claude の提案を参考にすることがある。`## Claude による添削・解説（AI生成）` 以下は AI が生成したもの。
+- 開催中のコンテストでは AI を使わない（[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)）。添削をもらうのは過去問の練習だけ。

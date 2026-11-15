@@ -124,20 +124,36 @@ practice/ABC/380/
 ```markdown
 ---
 status:               # 本番AC / 自力AC / 解説AC / 未AC
-tags: []              # 例: [DP, 二分探索]
+tags: []              # 大分類と具体的な手法を両方（例: [DP, 桁DP]）
 time:                 # 時間計算量 例: O(N log N)
 space:                # 空間計算量 例: O(N)
 review: false         # 復習対象なら true
 ---
 
 ## 着眼点
+<!-- どの条件・制約から何に気づけば解法に辿り着けるか -->
+
 ## 解法
+<!-- 手順と、なぜそれで正しいか -->
+
 ## ハマった点・学び
+<!-- 次に同じ型が出たとき何を思い出せばよいか。WA/TLE の原因 -->
+
+<!-- Claude の添削・解説を貼るときはこの下に「## Claude による添削・解説（AI生成）」の節を足す -->
 ```
 
 - 問題URLは `main.cpp` の1行目、日付は git の履歴で分かるので書かない
 - `contest/` の `E.cpp` などを開いて押した場合は、`contest/` には作らず `practice/ABC/484/E/note.md` に作る（`contest/` は終了時点の状態を残す場所のため）。`practice/` 側に `main.cpp` が無いときは、frontmatter に `url:` が入る
 - `practice/` の古い形式（`practice/ABC/483/A.cpp` のように `A.cpp` を直接置く形式）ではノートを作れない
+
+#### Claude で添削をもらう
+
+本文を自分で書いた後、claude.ai のスキル `atcoder-review` で添削・解説をもらえる。
+
+1. 問題URLと `main.cpp` のパス（または中身）を渡す
+2. 返ってきたコピペ用ブロック（`## Claude による添削・解説（AI生成）` から始まる節）を `note.md` の末尾に貼る。tags / time / space の提案は参考にして自分で埋める
+
+**開催中のコンテスト（ABC / ARC / AGC）の問題には使わない**（[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)）。過去問の練習と、コンテスト終了後の振り返りだけに使う。
 
 ### 7. コミットする
 
