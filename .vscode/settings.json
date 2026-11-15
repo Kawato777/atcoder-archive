@@ -32,6 +32,11 @@
       "label": "$(cloud-download) New",
       "task": "new: 問題を取得",
       "tooltip": "コンテストの問題ディレクトリとサンプルを取得"
+    },
+    {
+      "label": "$(note) Note",
+      "task": "note: 現在のファイル",
+      "tooltip": "開いている問題の解法ノート (note.md) を作成し、パスを表示"
     }
   ],
   "lldb.adapterEnv": {

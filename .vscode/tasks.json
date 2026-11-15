@@ -13,6 +13,15 @@
       "problemMatcher": ["$gcc"]
     },
     {
+      "label": "note: 現在のファイル",
+      "detail": "scripts/note で開いている問題の note.md を作成（既存なら作らない）し、パスを表示",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/note",
+      "args": ["${file}"],
+      "presentation": { "focus": true, "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
       "label": "new: 問題を取得",
       "detail": "scripts/new <contest> [問題...] を実行して practice/ に取得（例: abc380 / abc380 a c）",
       "type": "shell",
