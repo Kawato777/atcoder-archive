@@ -84,3 +84,6 @@ test/
 tools/vscode-atcoder/node_modules/
 tools/vscode-atcoder/out/
 *.vsix
+
+# Python
+__pycache__/
