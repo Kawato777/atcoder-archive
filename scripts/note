@@ -9,6 +9,8 @@
     scripts/note --info practice/ABC/484/E     # 作らずに場所・有無・既存のタグを JSON で出す
     scripts/note --apply practice/ABC/484/E    # Claude（atcoder-review）の出力をクリップボードから取り込む
     scripts/note --apply --from out.md practice/ABC/484/E   # ファイルから（--from - は標準入力）
+    scripts/note --apply --dry-run --from out.md practice/ABC/484/E   # 書き込まず、取り込み後の全文を出す
+    scripts/note --history                     # practice/ の全ノートの path / url / status / tags を JSON で出す
 
 --status / --tags / --time / --space / --review は新しく作るときだけ frontmatter に入る（既存のノートは変えない）。
 
@@ -18,6 +20,10 @@
     review は false を空とみなす。
   - 見出しから末尾までの節は、note.md に既にあれば置き換え、無ければ末尾に追加する。見出しより上の本文は変えない。
   - note.md が無ければ先に作る。要約は標準エラー出力に、結果は標準出力に JSON で出す。
+  - --dry-run では何も書き込まず、取り込み後の note.md の全文を標準出力に出す（要約は標準エラー出力）。
+
+--history は practice/ 以下の全ての note.md について {path, url, status, tags} の配列を JSON で出す。
+  path はリポジトリ相対。url は frontmatter の url: か main.cpp の 1 行目のコメントから取る（無ければ null）。
 
 contest/ はコンテスト終了時点の状態を残す場所なので、ノートは practice/ 側に作る。
 practice/ 側に main.cpp が無いときは、問題URLを frontmatter の url: に書く。
@@ -177,6 +183,40 @@ def existing_tags() -> list[str]:
         if m:
             counts.update(parse_tags(m[1]))
     return [tag for tag, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def note_url(note: Path, fm: dict[str, str]) -> str | None:
+    """frontmatter の url:、無ければ main.cpp の 1 行目のコメントの URL"""
+    if fm.get("url"):
+        return fm["url"]
+    source = note.parent / SOURCE_NAME
+    if not source.exists():
+        return None
+    with source.open(encoding="utf-8", errors="replace") as f:
+        m = re.search(r"https://atcoder\.jp/\S+", f.readline())
+    return m[0] if m else None
+
+
+def history() -> list[dict[str, object]]:
+    """practice/ 以下の全ノートの path / url / status / tags（path の順）"""
+    entries: list[dict[str, object]] = []
+    for note in sorted((REPO_ROOT / PRACTICE_DIR).rglob(NOTE_NAME)):
+        split = split_frontmatter(note.read_text(encoding="utf-8").replace("\r\n", "\n"))
+        fm = {
+            line.split(":", 1)[0].strip(): frontmatter_value(line)
+            for line in (split[0] if split else [])
+            if ":" in line and not line.lstrip().startswith("#")
+        }
+        tags = fm.get("tags", "")
+        entries.append(
+            {
+                "path": note.relative_to(REPO_ROOT).as_posix(),
+                "url": note_url(note, fm),
+                "status": fm.get("status") or None,
+                "tags": parse_tags(tags.strip("[]")) if tags.startswith("[") else [],
+            }
+        )
+    return entries
 
 
 # --- --apply: Claude（atcoder-review）の出力の取り込み ---
@@ -341,7 +381,6 @@ def apply_note(args: argparse.Namespace, note: Path, url: str | None) -> int:
 
     created = not note.exists()
     if created:
-        note.parent.mkdir(parents=True, exist_ok=True)
         has_source = (note.parent / SOURCE_NAME).exists()
         original = render(None if has_source else url, frontmatter_fields(args))
     else:
@@ -349,10 +388,12 @@ def apply_note(args: argparse.Namespace, note: Path, url: str | None) -> int:
 
     text, result, kept = apply_frontmatter(original, fields, args.overwrite, label)
     text, section_status = apply_section(text, section)
-    if created or text != original:
+    if not args.dry_run and (created or text != original):
+        note.parent.mkdir(parents=True, exist_ok=True)
         note.write_text(text, encoding="utf-8")
 
-    lines = [f"{label} ({'作成して取り込み' if created else '取り込み'})"]
+    action = "作成して取り込み" if created else "取り込み"
+    lines = [f"{label} ({action}{'。--dry-run なので書き込んでいません' if args.dry_run else ''})"]
     if result["filled"]:
         lines.append(f"  埋めたキー: {', '.join(result['filled'])}")
     if result["overwritten"]:
@@ -366,6 +407,9 @@ def apply_note(args: argparse.Namespace, note: Path, url: str | None) -> int:
         lines.append(f"  無視したキー: {', '.join(ignored)}")
     lines.append(f"  「{AI_HEADING}」の節を{'置き換えました' if section_status == 'replaced' else '追加しました'}")
     print("\n".join(lines), file=sys.stderr)
+    if args.dry_run:
+        sys.stdout.write(text)
+        return 0
     print(
         json.dumps(
             {"note": str(note), "created": created, **result, "kept": kept, "ignored": ignored, "section": section_status},
@@ -379,7 +423,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="scripts/note", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("path", help="問題のディレクトリ、main.cpp、または contest/ の <問題>.cpp")
+    parser.add_argument("path", nargs="?", help="問題のディレクトリ、main.cpp、または contest/ の <問題>.cpp")
     parser.add_argument("--info", action="store_true", help="作らずに場所・有無・既存のタグを JSON で出す")
     parser.add_argument("--status", choices=STATUSES)
     parser.add_argument("--tags", help="カンマ区切り（例: DP,二分探索）")
@@ -389,16 +433,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--apply", action="store_true", help="Claude（atcoder-review）の出力を note.md に取り込む")
     parser.add_argument("--from", dest="source", help="--apply で読む内容のファイル（- は標準入力。省略時はクリップボード）")
     parser.add_argument("--overwrite", action="store_true", help="--apply で、値が入っているキーも上書きする")
+    parser.add_argument("--dry-run", action="store_true", help="--apply で、書き込まずに取り込み後の全文を標準出力に出す")
+    parser.add_argument("--history", action="store_true", help="practice/ の全ノートの path / url / status / tags を JSON で出す")
     args = parser.parse_args(argv)
+    if args.history:
+        if args.path is not None or args.apply or args.info:
+            parser.error("--history は単独で使ってください（パスは不要）")
+        return args
+    if args.path is None:
+        parser.error("パスを指定してください")
     if args.apply and args.info:
         parser.error("--apply と --info は同時に使えません")
-    if not args.apply and (args.source is not None or args.overwrite):
-        parser.error("--from と --overwrite は --apply と一緒に使ってください")
+    if not args.apply and (args.source is not None or args.overwrite or args.dry_run):
+        parser.error("--from / --overwrite / --dry-run は --apply と一緒に使ってください")
     return args
 
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
+    if args.history:
+        print(json.dumps(history(), ensure_ascii=False))
+        return 0
     problem_dir, url = resolve(args.path)
     absolute_dir = REPO_ROOT / problem_dir
     note = absolute_dir / NOTE_NAME
