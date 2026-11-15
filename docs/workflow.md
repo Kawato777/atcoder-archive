@@ -182,4 +182,4 @@ oj t -e 1e-6 -c ./main.out -d test
 
 ## 古い解答について
 
-`contest/ABC/484`・`practice/ABC/483`・`practice/ABS` は `scripts/new` を作る前の形式（`A.cpp` を直接置く形式）。`test/` が無いのでテストは使えない。`practice/` の 2 つはノートも作れない。build と[デバッグ](debug.md)はそのまま使える。
+`contest/ABC/484`・`practice/ABC/483` は `scripts/new` を作る前の形式（`A.cpp` を直接置く形式）。`test/` が無いのでテストは使えない。`practice/ABC/483` はノートも作れない。build と[デバッグ](debug.md)はそのまま使える。
