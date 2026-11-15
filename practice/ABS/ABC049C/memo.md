@@ -1,0 +1,3 @@
+- dreamの後はd,e
+- erの後はe,a,d
+    - aならeraseの一部
