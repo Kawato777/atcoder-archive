@@ -2,7 +2,7 @@
   "name": "atcoder-practice",
   "displayName": "AtCoder Practice",
   "description": "このリポジトリ専用: サイドバーから問題の取得とサンプルテストを行う",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "publisher": "local",
   "private": true,
   "license": "UNLICENSED",
@@ -42,10 +42,33 @@
           "name": "ノート"
         }
       ]
+    },
+    "configuration": {
+      "title": "AtCoder Practice",
+      "properties": {
+        "atcoder.claude.model": {
+          "type": "string",
+          "enum": ["sonnet", "opus"],
+          "default": "sonnet",
+          "markdownDescription": "「🤖 Claude で添削」で使う Claude Code のモデル（`claude --model` に渡す）"
+        },
+        "atcoder.claude.timeoutSec": {
+          "type": "number",
+          "default": 300,
+          "minimum": 30,
+          "markdownDescription": "「🤖 Claude で添削」のタイムアウト（秒）。超えたら claude を止める"
+        },
+        "atcoder.claude.path": {
+          "type": "string",
+          "default": "claude",
+          "markdownDescription": "`claude` コマンドのパス。見つからない場合は絶対パス（例: `/Users/<you>/.local/bin/claude`）を指定する"
+        }
+      }
     }
   },
   "scripts": {
     "compile": "tsc -p .",
+    "test": "tsc -p . && node --test out/tests/",
     "package": "vsce package --no-dependencies --skip-license --allow-missing-repository -o atcoder-practice.vsix"
   },
   "devDependencies": {
