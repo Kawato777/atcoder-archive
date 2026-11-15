@@ -49,16 +49,20 @@ const isCpp = (doc: vscode.TextDocument): boolean => doc.uri.scheme === "file" &
 export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
   private state: State = INITIAL;
-  private readonly subscription: vscode.Disposable;
+  private readonly subscriptions: readonly vscode.Disposable[];
 
   constructor() {
     this.track(vscode.window.activeTextEditor);
-    // Webview をクリックすると activeTextEditor が undefined になるので、最後に開いた .cpp を対象として保持する
-    this.subscription = vscode.window.onDidChangeActiveTextEditor((e) => this.track(e));
+    this.subscriptions = [
+      // Webview をクリックすると activeTextEditor が undefined になるので、最後に開いた .cpp を対象として保持する
+      vscode.window.onDidChangeActiveTextEditor((e) => this.track(e)),
+      // 1 行目の URL を後から書き換えても「問題を開く」「提出」に反映させる
+      vscode.workspace.onDidChangeTextDocument((e) => this.refreshProblem(e.document)),
+    ];
   }
 
   dispose(): void {
-    this.subscription.dispose();
+    this.subscriptions.forEach((d) => d.dispose());
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -78,7 +82,10 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   private track(editor: vscode.TextEditor | undefined): void {
     if (editor === undefined || !isCpp(editor.document) || this.state.phase !== "idle") return;
     const file = editor.document.fileName;
-    if (file === this.state.file) return;
+    if (file === this.state.file) {
+      this.refreshProblem(editor.document);
+      return;
+    }
     const root = findRepoRoot();
     this.setState({
       ...INITIAL,
@@ -86,6 +93,13 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       label: root ? path.relative(root, file) : path.basename(file),
       problem: parseProblem(editor.document.getText()),
     });
+  }
+
+  private refreshProblem(doc: vscode.TextDocument): void {
+    if (doc.fileName !== this.state.file) return;
+    const problem = parseProblem(doc.getText());
+    const same = problem?.contest === this.state.problem?.contest && problem?.task === this.state.problem?.task;
+    if (!same) this.setState({ problem });
   }
 
   private setState(next: Partial<State>): void {
