@@ -5,18 +5,16 @@ using ll = long long;
 
 /* 解説あり */
 int main() {
-    int n, result = 0;
+    int n;
+    ll result = 0;
     cin >> n;
-    vector<int> A(n), B(n + 1);
+    vector<ll> A(n), B(n + 1, 0);
     for (int i = 0; i < n; i++) cin >> A[i];
     sort(A.begin(), A.end());
-    B[0] = 0;
-    for (int i = 1; i < n + 1; i++) {
-        B[i] = B[i - 1] + A[i - 1];
+    for (int i = 0; i < n; i++) {
+        B[i + 1] = B[i] + A[i];
     }
-    for (int i = 0; i < n - 1; i++) {
-        result += (B[n] - B[i + 1]) - (n - i - 1) * A[i];
-    }
+    for (int i = 0; i < n; i++) result += A[i] * i - B[i];
     cout << result << endl;
     return 0;
 }
