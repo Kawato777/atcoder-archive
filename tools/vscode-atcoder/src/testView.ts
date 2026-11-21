@@ -1,11 +1,14 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { type CaseResult, listCases, runCase, testDirFor, TIME_LIMIT_MS } from "./judge";
+import { type CaseResult, listCases, type TestCase, runCase, testDirFor, TIME_LIMIT_MS } from "./judge";
 import { findRepoRoot, run } from "./process";
 import { page } from "./webview";
 
 type Phase = "idle" | "build" | "run";
+
+/** 何を実行しているか（test/ のサンプル or 自分で書いた input.txt） */
+type RunKind = "samples" | "input";
 
 type Problem = { readonly contest: string; readonly task: string };
 
@@ -14,18 +17,21 @@ type State = {
   readonly label: string | undefined; // 表示用の相対パス
   readonly problem: Problem | undefined;
   readonly phase: Phase;
+  readonly kind: RunKind;
   readonly total: number;
   readonly results: readonly CaseResult[];
   readonly error: string | undefined;
 };
 
-type FromWebview = { readonly type: "run" | "openProblem" | "submit" };
+const MESSAGE_TYPES = ["run", "runInput", "openProblem", "submit"] as const;
+type FromWebview = { readonly type: (typeof MESSAGE_TYPES)[number] };
 
 const INITIAL: State = {
   file: undefined,
   label: undefined,
   problem: undefined,
   phase: "idle",
+  kind: "samples",
   total: 0,
   results: [],
   error: undefined,
@@ -42,7 +48,7 @@ const submitUrl = (p: Problem): string =>
   `https://atcoder.jp/contests/${p.contest}/submit?taskScreenName=${encodeURIComponent(p.task)}`;
 
 const isMessage = (m: unknown): m is FromWebview =>
-  typeof m === "object" && m !== null && "type" in m && ["run", "openProblem", "submit"].includes(String(m.type));
+  typeof m === "object" && m !== null && "type" in m && MESSAGE_TYPES.some((t) => t === m.type);
 
 const isCpp = (doc: vscode.TextDocument): boolean => doc.uri.scheme === "file" && doc.fileName.endsWith(".cpp");
 
@@ -72,6 +78,7 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     view.webview.onDidReceiveMessage((m: unknown) => {
       if (!isMessage(m)) return;
       if (m.type === "run") void this.runTests();
+      else if (m.type === "runInput") void this.runInput();
       else if (m.type === "openProblem") void this.openProblem();
       else void this.submit();
     });
@@ -128,15 +135,37 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       return;
     }
 
-    const source = await this.saveAndRead(file);
-    const dir = path.dirname(file);
     const cases = listCases(testDirFor(root, file));
     if (cases.length === 0) {
       this.setState({ results: [], error: "test/ にサンプルがありません。インポート欄から問題を取得してください" });
       return;
     }
+    await this.buildAndRun(root, file, "samples", cases);
+  }
 
-    this.setState({ phase: "build", total: cases.length, results: [], error: undefined, problem: parseProblem(source) });
+  /** ソースと同じフォルダの input.txt（デバッグ構成「Debug (input.txt)」と同じファイル）を入力にして実行する */
+  private async runInput(): Promise<void> {
+    const { file, phase } = this.state;
+    if (file === undefined || phase !== "idle") return;
+    const root = findRepoRoot();
+    if (root === undefined) {
+      this.setState({ error: "scripts/test があるフォルダを開いてください" });
+      return;
+    }
+    const inputFile = path.join(path.dirname(file), "input.txt");
+    if (!existsSync(inputFile)) {
+      this.setState({ results: [], error: `input.txt がありません: ${path.relative(root, inputFile)}` });
+      return;
+    }
+    const input = await this.saveAndRead(inputFile);
+    await this.buildAndRun(root, file, "input", [{ name: "input.txt", input, expected: undefined }]);
+  }
+
+  /** scripts/test --build-only でビルドし、ケースを 1 件ずつ実行して結果を流す */
+  private async buildAndRun(root: string, file: string, kind: RunKind, cases: readonly TestCase[]): Promise<void> {
+    const source = await this.saveAndRead(file);
+    const dir = path.dirname(file);
+    this.setState({ phase: "build", kind, total: cases.length, results: [], error: undefined, problem: parseProblem(source) });
     const build = await run(path.join(root, "scripts", "test"), ["--build-only", file], dir);
     if (build.code !== 0) {
       this.setState({ phase: "idle", error: build.stderr.trim() || "コンパイルに失敗しました" });
@@ -174,6 +203,7 @@ const BODY = `
 <div id="target" class="muted">.cpp ファイルを開いてください</div>
 <div>
   <button id="run">▶ テスト実行</button>
+  <button id="runInput" class="secondary" title="ソースと同じフォルダの input.txt を入力にして実行する">▶ input.txt で実行</button>
   <button id="openProblem" class="secondary">問題を開く</button>
   <button id="submit" class="secondary">コピーして提出ページへ</button>
 </div>
@@ -183,7 +213,7 @@ const BODY = `
 
 const SCRIPT = `
 const $ = (id) => document.getElementById(id);
-for (const type of ["run", "openProblem", "submit"]) {
+for (const type of ["run", "runInput", "openProblem", "submit"]) {
   $(type).addEventListener("click", () => vscode.postMessage({ type }));
 }
 
@@ -205,8 +235,11 @@ window.addEventListener("message", ({ data }) => {
   if (data.type !== "state") return;
   const s = data.state;
   $("target").textContent = s.label ?? ".cpp ファイルを開いてください";
+  const busy = (kind, idle) => s.phase === "idle" || s.kind !== kind ? idle : s.phase === "build" ? "ビルド中…" : "実行中…";
   $("run").disabled = !s.file || s.phase !== "idle";
-  $("run").textContent = s.phase === "build" ? "ビルド中…" : s.phase === "run" ? "実行中…" : "▶ テスト実行";
+  $("run").textContent = busy("samples", "▶ テスト実行");
+  $("runInput").disabled = !s.file || s.phase !== "idle";
+  $("runInput").textContent = busy("input", "▶ input.txt で実行");
   $("openProblem").disabled = !s.problem;
   $("submit").disabled = !s.problem || s.phase !== "idle";
 
@@ -216,6 +249,8 @@ window.addEventListener("message", ({ data }) => {
     s.error ? '<div class="error">' + esc(s.error) + '</div>' :
     s.phase === "run" ? esc(s.results.length + " / " + s.total + " 件実行") :
     s.results.length === 0 ? "" :
+    // input.txt や .out の無いケースは正誤を判定できないので、結果のバッジ（RUN / RE / TLE）だけにする
+    s.kind === "input" || judged === 0 ? '<span class="muted">（' + data.timeLimitMs / 1000 + ' 秒を超えると TLE）</span>' :
     '<span class="badge ' + (ac === judged ? "AC" : "WA") + '">' + (ac === judged ? "全て AC" : "AC " + ac + " / " + judged) + '</span>' +
     ' <span class="muted">（' + data.timeLimitMs / 1000 + ' 秒を超えると TLE）</span>';
   $("results").innerHTML = s.results.map(caseHtml).join("");

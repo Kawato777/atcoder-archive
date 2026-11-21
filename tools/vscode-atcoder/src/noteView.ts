@@ -9,9 +9,6 @@ import { page } from "./webview";
 /** scripts/note --info の出力 */
 type NoteInfo = { readonly note: string; readonly exists: boolean; readonly tags: readonly string[] };
 
-/** ノート作成時に frontmatter に入れる値（空なら雛形のまま） */
-type NoteFields = { readonly status: string; readonly tags: string; readonly time: string; readonly space: string; readonly review: boolean };
-
 type State = {
   readonly file: string | undefined; // 絶対パス
   readonly label: string | undefined; // 表示用の相対パス
@@ -26,7 +23,6 @@ type KeptField = { readonly key: string; readonly current: string; readonly prop
 
 type FromWebview =
   | { readonly type: "openNote" }
-  | { readonly type: "createNote"; readonly fields: NoteFields }
   | { readonly type: "applyClaude" }
   | { readonly type: "reviewClaude" }
   | { readonly type: "cancelClaude" };
@@ -38,26 +34,12 @@ const MAX_STEPS = 8;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
-const parseNoteFields = (v: unknown): NoteFields | undefined =>
-  isRecord(v) &&
-  typeof v["status"] === "string" &&
-  typeof v["tags"] === "string" &&
-  typeof v["time"] === "string" &&
-  typeof v["space"] === "string" &&
-  typeof v["review"] === "boolean"
-    ? { status: v["status"], tags: v["tags"], time: v["time"], space: v["space"], review: v["review"] }
-    : undefined;
-
 const parseMessage = (m: unknown): FromWebview | undefined => {
   if (!isRecord(m)) return undefined;
   if (m["type"] === "openNote") return { type: "openNote" };
   if (m["type"] === "applyClaude") return { type: "applyClaude" };
   if (m["type"] === "reviewClaude") return { type: "reviewClaude" };
   if (m["type"] === "cancelClaude") return { type: "cancelClaude" };
-  if (m["type"] === "createNote") {
-    const fields = parseNoteFields(m["fields"]);
-    return fields && { type: "createNote", fields };
-  }
   return undefined;
 };
 
@@ -98,15 +80,6 @@ const parseApplyResult = (stdout: string): { readonly note: string; readonly kep
   }
 };
 
-/** 空の項目は渡さず、雛形のままにする */
-const noteArgs = (f: NoteFields): readonly string[] => [
-  ...(f.status === "" ? [] : ["--status", f.status]),
-  ...(f.tags.trim() === "" ? [] : ["--tags", f.tags]),
-  ...(f.time.trim() === "" ? [] : ["--time", f.time]),
-  ...(f.space.trim() === "" ? [] : ["--space", f.space]),
-  ...(f.review ? ["--review"] : []),
-];
-
 const isCpp = (doc: vscode.TextDocument): boolean => doc.uri.scheme === "file" && doc.fileName.endsWith(".cpp");
 
 export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -137,10 +110,10 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     view.webview.onDidReceiveMessage((raw: unknown) => {
       const m = parseMessage(raw);
       if (m === undefined) return;
-      if (m.type === "applyClaude") void this.applyClaude();
+      if (m.type === "openNote") void this.openNote();
+      else if (m.type === "applyClaude") void this.applyClaude();
       else if (m.type === "reviewClaude") void this.reviewClaude();
-      else if (m.type === "cancelClaude") this.review?.cancel();
-      else void this.openNote(m.type === "createNote" ? noteArgs(m.fields) : []);
+      else this.review?.cancel();
     });
     view.onDidChangeVisibility(() => {
       this.post();
@@ -160,7 +133,7 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     void this.refresh(file);
   }
 
-  /** note.md の場所・有無・既存のタグを取り直す（フォームを出すかどうかの判定に使う） */
+  /** note.md の場所・有無を取り直す（ボタンを出すかどうかの判定に使う） */
   private async refresh(file: string): Promise<void> {
     const root = findRepoRoot();
     if (root === undefined) {
@@ -191,25 +164,11 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     void this.view?.webview.postMessage({ type: "state", state: this.state });
   }
 
-  /** scripts/note で note.md を作り（既存ならそのまま）、エディタで開く。args は作成時の frontmatter 指定 */
-  private async openNote(args: readonly string[]): Promise<void> {
-    const { file } = this.state;
-    if (file === undefined) return;
-    const root = findRepoRoot();
-    if (root === undefined) {
-      this.setState({ error: "scripts/note があるフォルダを開いてください" });
-      return;
-    }
-    const result = await run(path.join(root, "scripts", "note"), [...args, file], root);
-    if (result.code !== 0) {
-      this.setState({ error: result.stderr.trim() || `scripts/note が失敗しました（終了コード ${result.code}）` });
-      return;
-    }
-    // scripts/note は note.md の絶対パスを標準出力の最後の行に出す
-    const note = result.stdout.trim().split("\n").at(-1) ?? "";
-    this.setState({ error: undefined });
-    await vscode.window.showTextDocument(vscode.Uri.file(note));
-    await this.refresh(file);
+  /** 作成済みの note.md をエディタで開く */
+  private async openNote(): Promise<void> {
+    const { note } = this.state;
+    if (note === undefined || !note.exists) return;
+    await vscode.window.showTextDocument(vscode.Uri.file(note.note));
   }
 
   /** クリップボードの Claude（atcoder-review）の出力を scripts/note --apply で note.md に取り込み、開く */
@@ -385,25 +344,6 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 const BODY = `
 <div id="target" class="muted">.cpp ファイルを開いてください</div>
 <div id="message" class="muted" style="margin-top:4px"></div>
-<div id="form" hidden>
-  <label for="status">status</label>
-  <select id="status">
-    <option value="">（未選択）</option>
-    <option>本番AC</option>
-    <option>自力AC</option>
-    <option>解説AC</option>
-    <option>未AC</option>
-  </select>
-  <label for="tags">tags（カンマ区切り）</label>
-  <input id="tags" placeholder="DP, 二分探索" autocomplete="off">
-  <div id="suggestions" class="muted" style="margin-top:4px"></div>
-  <label for="time">時間計算量（time）</label>
-  <input id="time" placeholder="O(N log N)" autocomplete="off">
-  <label for="space">空間計算量（space）</label>
-  <input id="space" placeholder="O(N)" autocomplete="off">
-  <label><input type="checkbox" id="review" style="width:auto;vertical-align:middle"> 復習対象（review）</label>
-  <button id="createNote">📝 ノートを作成して開く</button>
-</div>
 <button id="openNote" class="secondary" hidden>📝 ノートを開く</button>
 <button id="applyClaude" class="secondary" hidden title="claude.ai の atcoder-review の出力をコピーしてから押す">📋 Claude の出力を取り込む</button>
 <button id="reviewClaude" class="secondary" hidden title="Claude Code（claude -p）で今の解答を添削し、note.md への差分を表示する">🤖 Claude で添削</button>
@@ -421,36 +361,11 @@ $("openNote").addEventListener("click", () => vscode.postMessage({ type: "openNo
 $("applyClaude").addEventListener("click", () => vscode.postMessage({ type: "applyClaude" }));
 $("reviewClaude").addEventListener("click", () => vscode.postMessage({ type: "reviewClaude" }));
 $("cancelClaude").addEventListener("click", () => vscode.postMessage({ type: "cancelClaude" }));
-$("createNote").addEventListener("click", () => vscode.postMessage({
-  type: "createNote",
-  fields: {
-    status: $("status").value,
-    tags: $("tags").value,
-    time: $("time").value,
-    space: $("space").value,
-    review: $("review").checked,
-  },
-}));
-
-const splitTags = (text) => text.split(/[,、]/).map((t) => t.trim()).filter((t) => t !== "");
-
-// 候補のタグを押すと入力欄に追加する（既にあれば何もしない）
-$("suggestions").addEventListener("click", (e) => {
-  const tag = e.target instanceof HTMLElement ? e.target.dataset.tag : undefined;
-  if (tag === undefined) return;
-  const tags = splitTags($("tags").value);
-  if (!tags.includes(tag)) $("tags").value = [...tags, tag].join(", ");
-});
-
-// 対象のノートが変わったときだけフォームを空に戻す（入力途中の内容を消さない）
-let formFor = undefined;
-
 window.addEventListener("message", ({ data }) => {
   if (data.type !== "state") return;
   const s = data.state;
   const info = s.note;
   $("target").textContent = s.label ?? ".cpp ファイルを開いてください";
-  $("form").hidden = !info || info.exists;
   $("openNote").hidden = !info || !info.exists;
   $("applyClaude").hidden = !info;
   // 実行中は 1 つだけ。状況は新しいものほど下に出す（最後の行が実行中）
@@ -466,16 +381,6 @@ window.addEventListener("message", ({ data }) => {
   $("message").innerHTML =
     s.error ? '<div class="error">' + esc(s.error) + '</div>' :
     !info ? "" :
-    info.exists ? "note.md 作成済み" : "note.md はまだありません。値は空のままでもよい（作成後に編集できる）";
-  if (info && info.note !== formFor) {
-    formFor = info.note;
-    $("status").value = "";
-    $("tags").value = "";
-    $("time").value = "";
-    $("space").value = "";
-    $("review").checked = false;
-  }
-  $("suggestions").innerHTML = !info || info.tags.length === 0 ? "" :
-    "候補: " + info.tags.map((t) => '<span class="link" data-tag="' + esc(t) + '">' + esc(t) + '</span>').join(" ");
+    info.exists ? "note.md 作成済み" : "note.md はまだありません（取り込み・添削の適用時に作成されます）";
 });
 `;
