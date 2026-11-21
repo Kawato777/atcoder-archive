@@ -33,7 +33,7 @@ command -v "$CXX" >/dev/null || { echo "エラー: $CXX がありません。scr
 
 build() {
   "$CXX" -std=gnu++23 -O2 -Wall -Wextra -DLOCAL \
-    -I "$REPO_ROOT/.lib/ac-library" \
+    -I "$REPO_ROOT/.lib/ac-library" -I "$REPO_ROOT/include" \
     "$SRC" -o "$BIN"
 }
 

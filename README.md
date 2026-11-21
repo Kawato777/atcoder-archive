@@ -50,6 +50,7 @@ VS Code の左端の **AC** アイコンから操作する。
 | 対象 | 書いた人 |
 | --- | --- |
 | 解答コード（`practice/**/main.cpp`・`contest/**/*.cpp`） | **自分だけ**。AI による生成・補完・書き直しはしない（添削で受け取るのは差分の提案まで） |
+| テンプレート（`base.cpp`）と `dbg` の本体（`include/debug.hpp`） | Claude を使って作成。入れる要素は自分で選んだ。`base.cpp` は解答コードの先頭に入るため、[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)に従い、このリポジトリ（public）で**コンテスト開始前に公開**し、1 行目に参照 URL を書いている。`debug.hpp` は `-DLOCAL` のときだけ読み込まれ、提出コードには入らない |
 | 解法ノート（`note.md`）の本文（着眼点／解法／ハマった点・学び）と `status` | 自分 |
 | `note.md` の `tags` / `time` / `space` / `review` | 自分。Claude の提案を差分で確認して取り込むことがある |
 | `note.md` の `## Claude による添削・解説（AI生成）`・`## Claude による添削・解説（AI生成・本番）` の節 | **AI 生成**（先頭に生成日のコメントと、添削したコードへのリンクが入る） |
