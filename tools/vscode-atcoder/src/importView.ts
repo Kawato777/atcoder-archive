@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { buildContestId, canCreateForContest, CONTEST_KINDS } from "./contestKind";
+import type { ModeManager } from "./mode";
 import { findRepoRoot, run } from "./process";
 import { page } from "./webview";
 
@@ -49,9 +50,18 @@ const isMessage = (m: unknown): m is FromWebview =>
 const words = (s: string): readonly string[] => s.trim().split(/\s+/).filter((w) => w !== "");
 const isLabel = (w: string): boolean => /^[A-Za-z0-9]+$/.test(w);
 
-export class ImportViewProvider implements vscode.WebviewViewProvider {
+export class ImportViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
   private state: State = { running: undefined, tasks: [], error: undefined };
+  private readonly subscription: vscode.Disposable;
+
+  constructor(private readonly modes: ModeManager) {
+    this.subscription = modes.onDidChange(() => this.post());
+  }
+
+  dispose(): void {
+    this.subscription.dispose();
+  }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -71,7 +81,7 @@ export class ImportViewProvider implements vscode.WebviewViewProvider {
   }
 
   private post(): void {
-    void this.view?.webview.postMessage({ type: "state", state: this.state });
+    void this.view?.webview.postMessage({ type: "state", state: this.state, contestMode: this.modes.isContest });
   }
 
   private async import(m: ImportMessage): Promise<void> {
@@ -84,6 +94,10 @@ export class ImportViewProvider implements vscode.WebviewViewProvider {
     const contest = buildContestId(m.kind, m.value);
     if (!contest.ok) {
       this.setState({ tasks: [], error: contest.error });
+      return;
+    }
+    if (m.mode === "practice" && this.modes.isContest) {
+      this.setState({ tasks: [], error: "本番モード中は過去問の取得を止めています（ステータスバーで練習モードに戻せます）" });
       return;
     }
     if (m.mode === "contest" && !canCreateForContest(m.kind)) {
@@ -106,6 +120,11 @@ export class ImportViewProvider implements vscode.WebviewViewProvider {
       error: result.code === 0 ? undefined : result.stderr.trim() || `scripts/new が失敗しました（終了コード ${result.code}）`,
     });
 
+    // コンテスト用に作成したら本番モードに入る（生成 AI の機能を止める）
+    if (m.mode === "contest" && result.code === 0 && !this.modes.isContest) {
+      await this.modes.set("contest");
+      void vscode.window.showInformationMessage("本番モードに切り替えました。終了後はステータスバーから練習モードに戻してください");
+    }
     const first = tasks[0];
     if (first) await this.open(first.file);
   }
@@ -185,7 +204,8 @@ $("result").addEventListener("click", (e) => {
 window.addEventListener("message", ({ data }) => {
   if (data.type !== "state") return;
   const { running, tasks: list, error } = data.state;
-  practiceBtn.disabled = running !== undefined && running !== null;
+  practiceBtn.disabled = (running !== undefined && running !== null) || data.contestMode;
+  practiceBtn.title = data.contestMode ? "本番モード中は使えません" : "";
   practiceBtn.textContent = running === "practice" ? "取得中…" : "過去問を取得";
   contestBtn.textContent = running === "contest" ? "作成中…" : "コンテスト用に作成";
   if (running) contestBtn.disabled = true; else refresh();

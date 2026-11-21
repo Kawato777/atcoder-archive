@@ -2,7 +2,7 @@
   "name": "atcoder-practice",
   "displayName": "AtCoder Practice",
   "description": "このリポジトリ専用: サイドバーから問題の取得とサンプルテストを行う",
-  "version": "0.1.13",
+  "version": "0.2.0",
   "publisher": "local",
   "private": true,
   "license": "UNLICENSED",
@@ -13,8 +13,16 @@
     "Other"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "workspaceContains:scripts/new"
+  ],
   "contributes": {
+    "commands": [
+      {
+        "command": "atcoder.toggleMode",
+        "title": "AtCoder: 練習モード / 本番モードを切り替える"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -57,6 +65,18 @@
           "default": 300,
           "minimum": 30,
           "markdownDescription": "「🤖 Claude で添削」のタイムアウト（秒）。超えたら claude を止める"
+        },
+        "atcoder.stress.seconds": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "markdownDescription": "「▶ ランダムテスト」を続ける最大の秒数"
+        },
+        "atcoder.stress.maxCases": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 1,
+          "markdownDescription": "「▶ ランダムテスト」で試す最大の件数"
         },
         "atcoder.claude.path": {
           "type": "string",

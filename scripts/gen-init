@@ -1,0 +1,767 @@
+#!/usr/bin/env python3
+"""ランダムテスト用の gen.py と brute.cpp の雛形を作る。
+
+使い方:
+    scripts/gen-init practice/ABC/485/C/main.cpp   # -> 同じフォルダに gen.py, brute.cpp
+    scripts/gen-init contest/ABC/485/C.cpp         # -> C.gen.py, C.brute.cpp
+    scripts/gen-init --print <問題URL>             # 生成部分だけを標準出力に出す（確認用）
+
+問題ページの「入力」の形式と「制約」を読み、値を小さくした生成コードを gen.py に書く。
+読めなかった部分は `# TODO` として残すので、そこだけ手で直す。
+読み取りはルールベース（正規表現）で、生成 AI は使わない。既にあるファイルは上書きしない。
+"""
+
+from __future__ import annotations
+
+import html
+import keyword
+import re
+import sys
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TEMPLATE = REPO_ROOT / "base.cpp"
+PROBLEM_URL = re.compile(r"https://atcoder\.jp/contests/([\w-]+)/tasks/([\w-]+)")
+
+# ---------------------------------------------------------------------------
+# gen.py の共通部分（問題によらない）
+# ---------------------------------------------------------------------------
+
+GEN_HEADER = '''\
+#!/usr/bin/env python3
+# ランダムテストの入力生成器: python3 gen.py [seed] -> 入力を 1 つ標準出力に出す
+# 「▶ ランダムテスト」（または scripts/stress）が seed を変えながら何度も呼ぶ
+# 制約を満たさない入力は assert で捨てられる（例: assert len(set(C)) >= 2）。gen.py が失敗した seed は飛ばす
+import random
+import sys
+
+random.seed(int(sys.argv[1]) if len(sys.argv) > 1 else None)
+rnd = random.randint
+SIZE_MAX = 8  # 個数（N, M, H, W, 文字列の長さなど）の上限。愚直解が間に合う程度に小さくする
+
+
+def edge(lo, hi):
+    """lo 以上 hi 以下。1/3 の確率で端（lo か hi）を返す"""
+    return random.choice([lo, hi]) if random.random() < 1 / 3 else rnd(lo, hi)
+
+
+def size(lo, hi):
+    """個数用。制約 [lo, hi] のうち小さい側（lo から SIZE_MAX 個分）だけを使い、端を出やすくする"""
+    return edge(lo, max(lo, min(hi, lo + SIZE_MAX - 1)))
+
+
+def val(lo, hi):
+    """値用。ふだんは 0 に近い狭い範囲（同じ値が並びやすい）、1/10 で制約の端（オーバーフロー確認用）"""
+    if random.random() < 0.1:
+        return random.choice([lo, hi])
+    c = min(max(0, lo), hi)
+    return rnd(max(lo, c - 2), min(hi, c + 3))
+
+
+def arr(n, lo, hi):
+    return [val(lo, hi) for _ in range(n)]
+
+
+def distinct(n, lo, hi):
+    """相異なる n 個（範囲が足りなければ例外）"""
+    return random.sample(range(lo, hi + 1), n)
+
+
+def perm(n):
+    """1..n の順列"""
+    return random.sample(range(1, n + 1), n)
+
+
+def string(n, chars="ab"):
+    return "".join(random.choice(chars) for _ in range(n))
+
+
+def grid(h, w, chars=".#"):
+    return [string(w, chars) for _ in range(h)]
+
+
+def tree(n):
+    """頂点 1..n の木の辺（n-1 本）"""
+    return [(random.randint(1, i - 1), i) for i in range(2, n + 1)]
+
+
+'''
+
+FALLBACK_BODY = '''\
+# ---- ここから問題ごとに書く（形式を読み取れなかったので例のまま）----
+n = size(1, 10**5)
+a = arr(n, 1, 10**9)
+print(n)
+print(*a)
+'''
+
+# ---------------------------------------------------------------------------
+# HTML から「入力」の形式と「制約」を取り出す
+# ---------------------------------------------------------------------------
+
+
+def fetch(url: str) -> str:
+    request = urllib.request.Request(url, headers={"User-Agent": "atcoder-archive-practice"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.read().decode("utf-8")
+
+
+def japanese_part(page: str) -> str:
+    i = page.find('<span class="lang-ja">')
+    return page[i:] if i >= 0 else page
+
+
+def section(ja: str, title: str, end_tag: str) -> str:
+    i = ja.find(f"<h3>{title}</h3>")
+    if i < 0:
+        return ""
+    j = ja.find(end_tag, i + 1)
+    return ja[i:j] if j >= 0 else ""
+
+
+def input_lines(ja: str) -> list[list[str]]:
+    """<pre> の各行を、<var> の中身（正規化済み）のリストにする"""
+    sec = section(ja, "入力", "</pre>")
+    pre = sec[sec.find("<pre>") + len("<pre>") :] if "<pre>" in sec else ""
+    lines = []
+    for raw in pre.replace("</var><var>", "").split("\n"):
+        vars_ = [normalize_tex(html.unescape(v)) for v in re.findall(r"<var>(.*?)</var>", raw)]
+        if vars_:
+            lines.append(vars_)
+    return lines
+
+
+def constraint_items(ja: str) -> list[str]:
+    """制約の <li> の中身（HTML のまま）"""
+    sec = section(ja, "制約", "<h3>")
+    return re.findall(r"<li>(.*?)</li>", sec, re.S)
+
+
+def strip_tags(s: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", s))
+
+
+# ---------------------------------------------------------------------------
+# TeX の正規化と式の変換
+# ---------------------------------------------------------------------------
+
+
+def normalize_tex(s: str) -> str:
+    s = re.sub(r"\\color\{[^}]*\}\{([^}]*)\}", r"\1", s)
+    s = re.sub(r"\\(?:mathrm|text|rm|mathit)\s*\{([^}]*)\}", r"\1", s)
+    s = re.sub(r"\\(?:left|right)\b", "", s)
+    s = re.sub(r"\s*_\s*", "_", s)  # "A _ 1" -> "A_1"
+    s = re.sub(r"\s*\^\s*", "^", s)
+    return s.strip()
+
+
+def to_relation_text(tex: str) -> str:
+    """不等式の TeX を "1<=N<=2*10**5" のような文字列にする"""
+    s = normalize_tex(tex)
+    s = s.replace("\\leqq", "<=").replace("\\leq", "<=").replace("\\le", "<=")
+    s = s.replace("\\geqq", ">=").replace("\\geq", ">=").replace("\\ge", ">=")
+    s = s.replace("\\lt", "<").replace("\\gt", ">").replace("\\neq", "!=").replace("\\ne", "!=")
+    s = s.replace("\\times", "*").replace("\\cdot", "*").replace("\\min", "min").replace("\\max", "max")
+    s = s.replace("\\,", "").replace("\\ ", " ").replace("\\;", "")
+    s = re.sub(r"\^\{([^}]*)\}", r"**(\1)", s)
+    s = re.sub(r"\^(-?\w+)", r"**\1", s)
+    s = re.sub(r"\(\s*1\s*<=\s*[ijk]\s*<=\s*\w+\s*\)\s*$", "", s)  # 末尾の (1 <= i <= N)
+    return re.sub(r"\s+", "", s)
+
+
+NAME = r"[A-Za-z][A-Za-z0-9]*(?:_(?:\{[^}]*\}|[A-Za-z0-9]+))?"
+EXPR_TOKEN = re.compile(r"\d+|[A-Za-z][A-Za-z0-9]*(?:_(?:\{[^}]*\}|[A-Za-z0-9]+))?|\*\*|[-+*/(),]")
+
+
+def base_name(name: str) -> str:
+    return name.split("_", 1)[0]
+
+
+def subscripts(name: str) -> list[str]:
+    if "_" not in name:
+        return []
+    sub = name.split("_", 1)[1]
+    sub = sub[1:-1] if sub.startswith("{") else sub
+    return [x.strip() for x in sub.split(",")]
+
+
+def py_name(name: str) -> str:
+    """問題の変数名 -> Python の変数名（添字が定数なら A_1 のように残す）"""
+    n = base_name(name)
+    subs = subscripts(name)
+    if subs and all(x.isdigit() for x in subs):
+        n = n + "_" + "_".join(subs)
+    if keyword.iskeyword(n) or n in RESERVED:
+        n += "_"
+    return n
+
+
+RESERVED = {"rnd", "edge", "size", "val", "arr", "distinct", "perm", "string", "grid", "tree", "random", "sys",
+            "print", "range", "min", "max", "SIZE_MAX", "i", "j", "k", "row", "rows"}
+
+
+def expr_to_py(expr: str, loop_var: str | None = None) -> str | None:
+    """制約の式 -> Python の式。読めなければ None"""
+    pos = 0
+    out = []
+    while pos < len(expr):
+        m = EXPR_TOKEN.match(expr, pos)
+        if m is None:
+            return None
+        t = m.group(0)
+        pos = m.end()
+        if t in ("min", "max") or re.fullmatch(r"\d+|\*\*|[-+*/(),]", t):
+            out.append("//" if t == "/" else t)
+        elif loop_var is not None and t in ("i", "j", "k"):
+            out.append(loop_var)
+        elif t.startswith("\\"):
+            return None
+        else:
+            if subscripts(t) and not all(x.isdigit() for x in subscripts(t)):
+                out.append("@" + py_name(t))  # A_i のような別の要素（あとで A の範囲に置き換える）
+            else:
+                out.append(py_name(t))
+    return "".join(out)
+
+
+def names_in(py_expr: str) -> set[str]:
+    return {t for t in re.findall(r"@?[A-Za-z_][A-Za-z0-9_]*", py_expr) if t not in ("min", "max")}
+
+
+def split_top(s: str) -> list[str]:
+    """括弧の外のカンマで分ける（S_{i,j} を分けない）"""
+    out, cur, depth = [], "", 0
+    for c in s:
+        depth += c in "({[" 
+        depth -= c in ")}]"
+        if c == "," and depth == 0:
+            out.append(cur)
+            cur = ""
+        else:
+            cur += c
+    return out + [cur]
+
+
+# ---------------------------------------------------------------------------
+# 変数の情報
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Var:
+    name: str  # Python 名（基本名）
+    los: list[str] = field(default_factory=list)  # 下限の候補（Python 式）
+    his: list[str] = field(default_factory=list)
+    kind: str = "int"  # int / string / char
+    chars: str | None = None
+    len_lo: str | None = None
+    len_hi: str | None = None
+    is_size: bool = False
+
+
+class Model:
+    def __init__(self) -> None:
+        self.vars: dict[str, Var] = {}
+        self.notes: list[str] = []  # 自動では反映していない制約
+
+    def var(self, name: str) -> Var:
+        key = py_name(name)
+        if key not in self.vars:
+            self.vars[key] = Var(key)
+        return self.vars[key]
+
+
+def parse_constraints(model: Model, items: list[str]) -> None:
+    for item in items:
+        text = strip_tags(item).strip()
+        tex_parts = [html.unescape(v) for v in re.findall(r"<var>(.*?)</var>", item)]
+        codes = [html.unescape(c) for c in re.findall(r"<code>(.*?)</code>", item)]
+        whole_var = len(tex_parts) == 1 and strip_tags(item).strip() == tex_parts[0].strip()
+        handled = False
+        if whole_var:
+            handled = parse_relation(model, to_relation_text(tex_parts[0]))
+        else:
+            handled = parse_text_constraint(model, text, tex_parts, codes)
+        if not handled and not re.search(r"整数|^\s*$", text):
+            model.notes.append(re.sub(r"\s+", " ", text))
+
+
+def split_names(part: str) -> list[str] | None:
+    names = split_top(part)
+    if all(re.fullmatch(NAME, n) for n in names) and not any(re.fullmatch(r"\d+", n) for n in names):
+        return names
+    return None
+
+
+def parse_relation(model: Model, rel: str) -> bool:
+    if "!=" in rel:
+        return False
+    m = re.fullmatch(rf"({NAME})=(-?[\w*()+]+)", rel)
+    if m:
+        e = expr_to_py(m.group(2))
+        if e is None:
+            return False
+        v = model.var(m.group(1))
+        v.los.append(e)
+        v.his.append(e)
+        return True
+    rel = rel.replace(">=", "@ge").replace(">", "@gt")
+    if "@" in rel:  # a >= b >= c は向きをそろえて読む
+        parts = re.split(r"@ge|@gt", rel)
+        ops = re.findall(r"@ge|@gt", rel)
+        rel = "".join(p + ("<=" if o == "@ge" else "<") for p, o in zip(reversed(parts[1:]), reversed(ops))) + parts[0]
+    tokens = re.split(r"(<=|<)", rel)
+    parts, ops = tokens[0::2], tokens[1::2]
+    if len(parts) < 2:
+        return False
+    found = False
+    for k, part in enumerate(parts):
+        names = split_names(part)
+        if names is None:
+            continue
+        for name in names:
+            v = model.var(name)
+            loop = "i" if subscripts(name) and not all(x.isdigit() for x in subscripts(name)) else None
+            if loop and any(subscripts(x) and not all(d.isdigit() for d in subscripts(x))
+                            for j, p in enumerate(parts) if j != k for x in (split_names(p) or [])):
+                note = f"{rel} の大小関係（要素どうし）"
+                if note not in model.notes:
+                    model.notes.append(note)
+            if k > 0:
+                e = expr_to_py(parts[k - 1], loop)
+                if e is not None and len(split_names(parts[k - 1]) or []) <= 1 and (loop or "@" not in e):
+                    v.los.append(e if ops[k - 1] == "<=" else f"{e}+1")
+                    found = True
+            if k + 1 < len(parts):
+                e = expr_to_py(parts[k + 1], loop)
+                if e is not None and len(split_names(parts[k + 1]) or []) <= 1 and (loop or "@" not in e):
+                    v.his.append(e if ops[k] == "<=" else f"{e}-1")
+                    found = True
+    return found
+
+
+CHAR_CLASSES = [("英小文字", "abc"), ("英大文字", "ABC"), ("数字", "012")]
+
+
+def parse_text_constraint(model: Model, text: str, tex_parts: list[str], codes: list[str]) -> bool:
+    if not tex_parts:
+        return False
+    subject = normalize_tex(tex_parts[0])
+    names = [n.strip() for n in split_top(subject)]
+    if not all(re.fullmatch(NAME, n) for n in names):
+        # "|S|" の長さ制約
+        m = re.fullmatch(r"(.*?)<=\|(\w+)\|<=(.*)", to_relation_text(tex_parts[0]))
+        if m:
+            v = model.var(m.group(2))
+            v.kind = "string"
+            v.len_lo, v.len_hi = expr_to_py(m.group(1)), expr_to_py(m.group(3))
+            return True
+        return False
+    chars = None
+    for word, cs in CHAR_CLASSES:
+        if word in text:
+            chars = (chars or "") + cs
+    if codes and re.search(r"のみ|からなる|か|いずれか|のどちらか|である", text):
+        chars = "".join(dict.fromkeys(c for code in codes for c in code if len(code) == 1)) or chars
+    is_string = "文字列" in text
+    if chars is None and not is_string:
+        return False
+    for name in names:
+        v = model.var(name)
+        v.chars = chars
+        v.kind = "string" if is_string else "char"
+    if is_string:
+        lo, hi = string_length(text, tex_parts)
+        for name in names:
+            v = model.var(name)
+            v.len_lo, v.len_hi = lo, hi
+    return True
+
+
+def string_length(text: str, tex_parts: list[str]) -> tuple[str | None, str | None]:
+    """「長さ N の」「長さ 1 以上 10 以下の」を読む（tex_parts は <var> の中身を順に並べたもの）"""
+    marked = text
+    for t in tex_parts:
+        marked = marked.replace(html.unescape(t), "\x00" + t + "\x01", 1)
+    m = re.search(r"長さ\s*(?:が\s*)?\x00(.*?)\x01\s*以上\s*\x00(.*?)\x01\s*以下", marked)
+    if m:
+        return expr_to_py(to_relation_text(m.group(1))), expr_to_py(to_relation_text(m.group(2)))
+    m = re.search(r"長さ\s*(?:が\s*)?\x00(.*?)\x01", marked)
+    if m:
+        e = expr_to_py(to_relation_text(m.group(1)))
+        return e, e
+    return None, None
+
+
+# ---------------------------------------------------------------------------
+# 入力形式の構造
+# ---------------------------------------------------------------------------
+
+ELLIPSIS = {"\\ldots", "\\dots", "\\cdots", "...", "…"}
+VDOTS = {"\\vdots", "⋮", ":"}
+
+
+@dataclass
+class Item:
+    kind: str  # scalars / array / rows / grid / matrix / todo
+    names: list[str] = field(default_factory=list)  # 問題の変数名
+    start: str = "1"
+    end: str = "1"
+    cols: str = "1"
+    raw: str = ""
+
+
+def split_concat(token: str) -> list[str]:
+    """'S_{1,1}S_{1,2}\\dots S_{1,W}' のように 1 つの <var> に詰めた行を分ける"""
+    parts = re.findall(rf"\\[a-z]+|\.\.\.|{NAME}", token)
+    return parts if len(parts) > 1 else [token]
+
+
+def parse_format(lines: list[list[str]]) -> list[Item]:
+    flat: list[list[str]] = []
+    for vars_ in lines:
+        toks: list[str] = []
+        for v in vars_:
+            toks.extend(split_concat(v) if re.search(r"\\dots|\\ldots|\\cdots", v) and len(v) > 8 else [v])
+        flat.append(toks)
+    concat = [len(vars_) == 1 and len(toks) > 1 for vars_, toks in zip(lines, flat)]
+
+    items: list[Item] = []
+    i = 0
+    while i < len(flat):
+        toks = flat[i]
+        raw = " ".join(lines[i])
+        nxt = flat[i + 1] if i + 1 < len(flat) else None
+        # 縦の繰り返し: X_1 ... / \vdots / X_N ...
+        vstart = i
+        if nxt is not None and any(t in VDOTS for t in nxt) or (
+            i + 2 < len(flat) and flat[i + 1] and same_shape(toks, flat[i + 1]) and any(t in VDOTS for t in flat[i + 2])
+        ):
+            j = i + 1
+            while j < len(flat) and not any(t in VDOTS for t in flat[j]):
+                j += 1
+            if j + 1 < len(flat):
+                first, last = flat[vstart], flat[j + 1]
+                item = vertical_item(first, last, concat[vstart])
+                if item is not None:
+                    item.raw = raw
+                    items.append(item)
+                    i = j + 2
+                    continue
+        if any(t in ELLIPSIS for t in toks):
+            item = horizontal_item(toks)
+            items.append(item if item is not None else Item("todo", raw=raw))
+        elif all(re.fullmatch(NAME, t) for t in toks):
+            items.append(Item("scalars", names=toks, raw=raw))
+        else:
+            items.append(Item("todo", raw=raw))
+        i += 1
+    return items
+
+
+def same_shape(a: list[str], b: list[str]) -> bool:
+    return len(a) == len(b) and all(base_name(x) == base_name(y) for x, y in zip(a, b))
+
+
+def horizontal_item(toks: list[str]) -> Item | None:
+    names = [t for t in toks if t not in ELLIPSIS]
+    if not names or len({base_name(n) for n in names}) != 1:
+        return None
+    first, last = subscripts(names[0]), subscripts(names[-1])
+    if len(first) == 1 and len(last) == 1:
+        return Item("array", names=[base_name(names[0])], start=first[0], end=last[0])
+    return None
+
+
+def vertical_item(first: list[str], last: list[str], concat: bool) -> Item | None:
+    if any(t in ELLIPSIS for t in first):  # 行列 / 文字のグリッド
+        names = [t for t in first if t not in ELLIPSIS]
+        names_last = [t for t in last if t not in ELLIPSIS]
+        if names and names_last and len({base_name(n) for n in names}) == 1:
+            s0, s1 = subscripts(names[0]), subscripts(names_last[-1])
+            if len(s0) == 2 and len(s1) == 2:
+                return Item("grid" if concat else "matrix", names=[base_name(names[0])], start=s0[0], end=s1[0], cols=s1[1])
+        return None
+    if len(first) != len(last) or not all(re.fullmatch(NAME, t) for t in first + last):
+        return None
+    if not all(base_name(a) == base_name(b) for a, b in zip(first, last)):
+        return None
+    s0, s1 = subscripts(first[0]), subscripts(last[0])
+    if len(s0) == 1 and len(s1) == 1:
+        if base_name(first[0]).lower() == "query":
+            return Item("todo", names=[first[0]], start=s0[0], end=s1[0])
+        return Item("rows", names=[base_name(t) for t in first], start=s0[0], end=s1[0])
+    return None
+
+
+# ---------------------------------------------------------------------------
+# gen.py の本体を組み立てる
+# ---------------------------------------------------------------------------
+
+
+def count_expr(start: str, end: str) -> str | None:
+    s, e = expr_to_py(start), expr_to_py(end)
+    if s is None or e is None:
+        return None
+    if s == "1":
+        return e
+    if re.fullmatch(r"\d+", s):
+        return f"{e} - {int(s) - 1}"
+    return f"{e} - {s} + 1"
+
+
+def build_body(items: list[Item], model: Model, url: str) -> str:
+    mark_sizes(items, model)
+    order = scalar_order(items)
+    r = Resolver(model)
+    lines = [f"# ---- ここから問題ごと（scripts/gen-init が {url} の入力形式と制約から生成）----"]
+    gen: list[str] = []
+    out: list[str] = []
+
+    for name in order:
+        v = model.var(name)
+        gen.append(f"{v.name} = {r.value_expr(v)}")
+        r.defined.add(v.name)
+
+    for it in items:
+        if it.kind == "scalars":
+            out.append("print(" + ", ".join(model.var(n).name for n in it.names) + ")")
+        elif it.kind == "array":
+            v = model.var(it.names[0])
+            s, e = expr_to_py(it.start), expr_to_py(it.end)
+            if s is None or e is None:
+                r.todos.append(f"配列 {it.raw} の長さを読めなかった")
+                continue
+            gen.append(f"{v.name} = [{r.elem_expr(v)} for i in range({s}, {e} + 1)]")
+            out.append(f"print(*{v.name})")
+        elif it.kind == "rows":
+            n = count_expr(it.start, it.end)
+            if n is None:
+                r.todos.append(f"{it.raw} の行数を読めなかった")
+                continue
+            vs = [model.var(x) for x in it.names]
+            for v in vs:
+                gen.append(f"{v.name} = [{r.elem_expr(v)} for i in range(1, {n} + 1)]")
+            cols = ", ".join(f"{v.name}[i]" for v in vs)
+            out.append(f"for i in range({n}):\n    print({cols})")
+        elif it.kind in ("grid", "matrix"):
+            v = model.var(it.names[0])
+            h, w = count_expr(it.start, it.end), expr_to_py(it.cols)
+            if h is None or w is None:
+                r.todos.append(f"{it.raw} の大きさを読めなかった")
+                continue
+            if it.kind == "grid" or v.kind == "char":
+                gen.append(f"{v.name} = grid({h}, {w}, {v.chars or '.#'!r})")
+                out.append(f"print(*{v.name}, sep=\"\\n\")")
+            else:
+                gen.append(f"{v.name} = [[{r.elem_expr(v)} for _ in range({w})] for _ in range({h})]")
+                out.append(f"for row in {v.name}:\n    print(*row)")
+        else:
+            what = it.names[0] if it.names else it.raw
+            r.todos.append(f"「{what}」の行は形式を読み取れないので手で書く（例: クエリ）")
+            n = count_expr(it.start, it.end) if it.names else None
+            if n is not None:
+                out.append(f"for _ in range({n}):\n    print()  # TODO: クエリを 1 行出す")
+            else:
+                out.append(f"# TODO: {it.raw} を出力する")
+
+    notes = list(dict.fromkeys(r.todos + model.notes))
+    if notes:
+        lines.append("# TODO: 次は自動では反映していない。必要なら直すか、出力の前に assert で条件を書く（満たさない入力は捨てられる）")
+        lines += [f"#   - {t}" for t in notes]
+    lines += gen + [""] + out
+    return "\n".join(lines) + "\n"
+
+
+def mark_sizes(items: list[Item], model: Model) -> None:
+    """個数（配列の長さ・行数・グリッドの大きさ・文字列の長さ）や、他の値の上下限に使われる変数は小さくする"""
+    used: set[str] = set()
+    for it in items:
+        if it.kind in ("array", "rows", "grid", "matrix", "todo"):
+            for expr in (it.end, it.cols):
+                e = expr_to_py(expr)
+                if e is not None:
+                    used |= names_in(e)
+    for v in model.vars.values():
+        for e in v.los + v.his + [v.len_lo or "", v.len_hi or ""]:
+            used |= {n for n in names_in(e) if not n.startswith("@") and n != v.name}
+    for name in used:
+        if name in model.vars and model.vars[name].kind == "int":
+            model.vars[name].is_size = True
+
+
+def scalar_order(items: list[Item]) -> list[str]:
+    names: list[str] = []
+    for it in items:
+        if it.kind == "scalars":
+            names += [n for n in it.names if n not in names]
+    return names
+
+
+def const_value(expr: str) -> int | None:
+    """変数を含まない式なら計算した値（"2*10**5" や "(1)+1" は数として扱い、表示は元の式のまま残す）"""
+    if names_in(expr) or not re.fullmatch(r"[\d+\-*/() ]+", expr) or "**" in expr and re.search(r"\*\*\s*\(?\s*\d{3,}", expr):
+        return None
+    try:
+        return int(eval(expr.replace("//", "//"), {"__builtins__": {}}))
+    except (ArithmeticError, SyntaxError, ValueError):
+        return None
+
+
+class Resolver:
+    """上下限の式を、生成済みの変数だけで書ける形にする（まだ無い変数はその変数自身の上下限に置き換える）"""
+
+    def __init__(self, model: Model) -> None:
+        self.model = model
+        self.defined: set[str] = set()
+        self.todos: list[str] = []
+
+    def resolve(self, expr: str, side: str, extra: set[str], seen: frozenset[str]) -> str | None:
+        result = expr
+        for name in sorted(names_in(expr), key=len, reverse=True):
+            if name in extra or name in self.defined:
+                continue
+            key = name.lstrip("@")
+            v = self.model.vars.get(key)
+            if v is None or key in seen:
+                return None
+            sub = self.bound(v, side, set(), seen | {key})
+            if sub is None:
+                return None
+            result = re.sub(rf"(?<![\w@]){re.escape(name)}(?!\w)", f"({sub})", result)
+        return result
+
+    def bound(self, v: Var, side: str, extra: set[str], seen: frozenset[str] = frozenset()) -> str | None:
+        exprs = v.los if side == "lo" else v.his
+        usable = [x for x in (self.resolve(e, side, extra, seen | {v.name}) for e in exprs) if x is not None]
+        nums = [(n, x) for x in usable if (n := const_value(x)) is not None]
+        usable = [x for x in usable if const_value(x) is None]
+        if nums:  # 定数どうしはまとめる（10**9 のような書き方はそのまま残す）
+            n, x = max(nums) if side == "lo" else min(nums)
+            usable.append(x if "**" in x else str(n))
+        usable = list(dict.fromkeys(usable))
+        if not usable:
+            return None
+        return usable[0] if len(usable) == 1 else f"{'max' if side == 'lo' else 'min'}({', '.join(usable)})"
+
+    def value_expr(self, v: Var) -> str:
+        if v.kind == "string":
+            return self.string_expr(v)
+        if v.kind == "char":
+            return f"random.choice({v.chars or 'ab'!r})"
+        lo, hi = self.bound(v, "lo", set()), self.bound(v, "hi", set())
+        if lo is None or hi is None:
+            self.todos.append(f"{v.name} の{'下限' if lo is None else '上限'}を読めなかったので仮の値にした")
+            lo = lo or "1"
+            hi = hi or (f"{lo} + SIZE_MAX - 1" if v.is_size else f"{lo} + 10")
+        return f"{'size' if v.is_size else 'val'}({lo}, {hi})"
+
+    def elem_expr(self, v: Var) -> str:
+        if v.kind == "string":
+            return self.string_expr(v)
+        if v.kind == "char":
+            return f"random.choice({v.chars or 'ab'!r})"
+        lo, hi = self.bound(v, "lo", {"i"}), self.bound(v, "hi", {"i"})
+        if lo is None or hi is None:
+            self.todos.append(f"{v.name}_i の{'下限' if lo is None else '上限'}を読めなかったので仮の値にした")
+            lo, hi = lo or "1", hi or "10**9"
+        return f"val({lo}, {hi})"
+
+    def string_expr(self, v: Var) -> str:
+        lo = self.resolve(v.len_lo, "lo", set(), frozenset()) if v.len_lo else None
+        hi = self.resolve(v.len_hi, "hi", set(), frozenset()) if v.len_hi else None
+        if lo is None and hi is None:
+            self.todos.append(f"{v.name} の長さを読めなかったので 1〜SIZE_MAX にした")
+            length = "size(1, SIZE_MAX)"
+        elif lo == hi:
+            length = lo
+        else:
+            length = f"size({lo or '1'}, {hi or 'SIZE_MAX'})"
+        if v.chars is None:
+            self.todos.append(f"{v.name} に使う文字を読めなかったので 'ab' にした")
+        return f"string({length}, {v.chars or 'ab'!r})"
+
+
+def generate_body(url: str) -> str:
+    ja = japanese_part(fetch(url))
+    lines = input_lines(ja)
+    if not lines:
+        raise ValueError("入力形式が見つからない")
+    model = Model()
+    items = parse_format(lines)
+    for it in items:  # 形式に出てくる変数を先に登録（制約に無くても扱えるように）
+        for n in it.names:
+            model.var(n)
+    parse_constraints(model, constraint_items(ja))
+    return build_body(items, model, url)
+
+
+# ---------------------------------------------------------------------------
+# ファイルの作成
+# ---------------------------------------------------------------------------
+
+
+def problem_url(src: Path) -> str | None:
+    first = src.read_text(errors="ignore").splitlines()[:1]
+    m = PROBLEM_URL.search(first[0]) if first else None
+    if m:
+        return m.group(0)
+    # contest/ABC/485/C.cpp -> https://atcoder.jp/contests/abc485/tasks/abc485_c
+    rel = src.resolve().relative_to(REPO_ROOT).as_posix() if src.resolve().is_relative_to(REPO_ROOT) else ""
+    m2 = re.fullmatch(r"(?:contest|practice)/([A-Z]+)/(\d+)/([A-Za-z0-9]+)(?:/main)?\.cpp", rel)
+    if m2:
+        cid = f"{m2[1].lower()}{m2[2]}"
+        return f"https://atcoder.jp/contests/{cid}/tasks/{cid}_{m2[3].lower()}"
+    return None
+
+
+def companion_paths(src: Path) -> tuple[Path, Path]:
+    """main.cpp -> gen.py, brute.cpp / C.cpp -> C.gen.py, C.brute.cpp"""
+    if src.name == "main.cpp":
+        return src.with_name("gen.py"), src.with_name("brute.cpp")
+    return src.with_name(f"{src.stem}.gen.py"), src.with_name(f"{src.stem}.brute.cpp")
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--print":
+        print(generate_body(argv[1]), end="")
+        return 0
+    if len(argv) != 1:
+        print(__doc__, file=sys.stderr)
+        return 2
+    src = Path(argv[0])
+    if not src.exists():
+        raise SystemExit(f"エラー: {src} がありません")
+    gen_path, brute_path = companion_paths(src)
+    url = problem_url(src)
+
+    if gen_path.exists():
+        print(f"gen.py: {gen_path} は既にあるので作らない")
+    else:
+        body, status = FALLBACK_BODY, "形式を読めなかったので例のまま（手で書く）"
+        if url is None:
+            status = "問題 URL が分からないので例のまま（手で書く）"
+        else:
+            try:
+                body = generate_body(url)
+                status = "入力形式と制約から生成（TODO を確認）" if "# TODO" in body else "入力形式と制約から生成"
+            except (urllib.error.URLError, ValueError, OSError) as e:
+                status = f"問題ページを読めなかった（{e}）ので例のまま（手で書く）"
+        gen_path.write_text(GEN_HEADER + body)
+        gen_path.chmod(0o755)
+        print(f"gen.py: {gen_path} を作成: {status}")
+
+    if brute_path.exists():
+        print(f"brute.cpp: {brute_path} は既にあるので作らない")
+    else:
+        head = f"// {url}\n" if url else ""
+        brute_path.write_text(head + "// 愚直解（小さい入力で確実に正しいもの）\n" + TEMPLATE.read_text())
+        print(f"brute.cpp: {brute_path} を作成（愚直解を書く）")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

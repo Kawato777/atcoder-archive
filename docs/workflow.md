@@ -62,6 +62,19 @@ contest/ABC/485/
 
 ターミナルなら `./scripts/new --contest abc485`（追加は `./scripts/new --contest abc485 h`）。
 
+### 本番モード / 練習モード
+
+ステータスバー左下に **練習モード** / **本番モード** が出る。**コンテスト用に作成** を押すと自動で本番モードになる。クリックで切り替えられる（本番 → 練習は確認が出る）。
+
+| | 練習モード | 本番モード |
+| --- | --- | --- |
+| テスト実行・input.txt で実行・ランダムテスト・雛形を作る・提出 | ✅ | ✅ |
+| コンテスト用に作成 | ✅ | ✅ |
+| 過去問を取得 | ✅ | ❌ |
+| ノート欄（📝 ノート・📋 Claude の出力を取り込む・🤖 Claude で添削） | ✅ | ❌（隠す） |
+
+[生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)で開催中に禁止されている生成 AI を呼ぶ機能を、本番モードでは止める。コンテストが終わったら練習モードに戻してから、本番のコードを添削する。
+
 ## 1サイクル（過去問）
 
 ### 1. 問題を取得する
@@ -98,6 +111,21 @@ practice/ABC/380/
 - コンパイルエラーはテスト欄にそのまま表示される
 
 自分で考えたケースを試すときは、`test/` に `custom-1.in` と `custom-1.out` を置くと一緒にテストされる。
+
+#### ランダムテスト（愚直解と比べる）
+
+サンプルは通るのに WA になるときや、境界（N=1、全部同じ値、端の要素など）が不安なときに使う。小さいランダムな入力を大量に作り、**愚直解**（遅くても確実に正しい解。全探索や O(N²) のループ）の出力と自分の解の出力を比べる。
+
+1. **テスト** 欄の **🎲 雛形を作る** を押す。問題ページの「入力」の形式と「制約」を読み、同じフォルダに 2 つのファイルを作って開く（`contest/` では `C.gen.py` と `C.brute.cpp`）
+   - `gen.py`: 入力の生成器。個数（N, H, W, 文字列の長さなど）は 8 以下、値は 0 に近い狭い範囲（ときどき制約の端）に縮めてある。読めなかった部分と、「相異なる」「グラフは単純」のような条件は先頭に `# TODO` として残るので、そこだけ直す。条件は出力の前に `assert` で書けば、満たさない入力は捨てられる（例: `assert len(set(C)) >= 2`）
+   - `brute.cpp`: 愚直解を自分で書く（中身は `base.cpp` と同じ）
+2. **▶ ランダムテスト** を押す。10 秒か 1000 件のどちらかに達するまで、seed を変えて比べ続ける（設定 `atcoder.stress.seconds` / `atcoder.stress.maxCases` で変更できる）
+   - 一致しない入力（または自分の解の RE / TLE）が見つかったら止まり、「入力 / 愚直解の出力 / あなたの出力」を表示する。その入力は `test/hack-000.in/.out` に保存され、以後 **▶ テスト実行** にも含まれる（`contest/` では `C.hack/` に保存）
+   - ビルドは `-D_GLIBCXX_DEBUG`（`vector` の範囲外アクセスを検出）付き。Linux（devcontainer）ではさらに AddressSanitizer / UndefinedBehaviorSanitizer で配列外アクセスや符号付きオーバーフローも止める（macOS の GCC にはサニタイザが無い）
+
+ターミナルなら `./scripts/gen-init practice/ABC/485/C/main.cpp` と `./scripts/stress practice/ABC/485/C/main.cpp`。生成部分だけ確認するなら `./scripts/gen-init --print <問題URL>`。
+
+`gen.py` の雛形作成は正規表現による読み取りで、生成 AI は使わない。本番モードでも使える。
 
 ### 5. 提出する
 
@@ -225,6 +253,7 @@ oj t -e 1e-6 -c ./main.out -d test
 | 過去問を取得 | **New** ボタン | `./scripts/new abc380`（特定の問題だけなら `./scripts/new abc380 a c`） |
 | コンテスト用に作成 | **New** ボタンで `--contest abc485` と入力 | `./scripts/new --contest abc485` |
 | テスト | **Test** ボタン | `./scripts/test practice/ABC/380/A/main.cpp` |
+| ランダムテスト | | `./scripts/gen-init <ソース>` で雛形を作り、`./scripts/stress <ソース>` |
 | ノートを作る | **Note** ボタン（パスが表示されるので Cmd + クリックで開く。値は空で作る） | `./scripts/note practice/ABC/380/A`（`contest/ABC/484/E.cpp` も指定できる。値は `--status 自力AC --tags DP,二分探索 --time "O(N log N)" --space "O(N)" --review` で指定） |
 
 コマンドパレット（**Cmd + Shift + P**）の **Tasks: Run Task** からも同じタスクを選べる。ほかに次のタスクがある。

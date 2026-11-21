@@ -50,11 +50,13 @@ VS Code の左端の **AC** アイコンから操作する。
 | 対象 | 書いた人 |
 | --- | --- |
 | 解答コード（`practice/**/main.cpp`・`contest/**/*.cpp`） | **自分だけ**。AI による生成・補完・書き直しはしない（添削で受け取るのは差分の提案まで） |
+| ランダムテストの愚直解（`brute.cpp`・`<問題>.brute.cpp`） | **自分だけ**（解答コードと同じ扱い） |
+| ランダムテストの入力生成器（`gen.py`・`<問題>.gen.py`） | 雛形は `scripts/gen-init` が問題ページから正規表現で作る（生成 AI は使わない）。手直しは自分 |
 | テンプレート（`base.cpp`）と `dbg` の本体（`include/debug.hpp`） | Claude を使って作成。入れる要素は自分で選んだ。`base.cpp` は解答コードの先頭に入るため、[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)に従い、このリポジトリ（public）で**コンテスト開始前に公開**し、1 行目に参照 URL を書いている。`debug.hpp` は `-DLOCAL` のときだけ読み込まれ、提出コードには入らない |
 | 解法ノート（`note.md`）の本文（着眼点／解法／ハマった点・学び）と `status` | 自分 |
 | `note.md` の `tags` / `time` / `space` / `review` | 自分。Claude の提案を差分で確認して取り込むことがある |
 | `note.md` の `## Claude による添削・解説（AI生成）`・`## Claude による添削・解説（AI生成・本番）` の節 | **AI 生成**（先頭に生成日のコメントと、添削したコードへのリンクが入る） |
 | スクリプト（`scripts/`）・VS Code 拡張（`tools/`）・スキル（`.claude/`）・devcontainer・ドキュメントなど、コンテストと関係ない環境まわり | Claude を使って作成 |
 
-- 開催中のコンテストでは AI を使わない（[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)）。添削をもらうのは過去問の練習と、コンテスト終了後の振り返りだけ。
+- 開催中のコンテストでは AI を使わない（[AtCoder生成AI対策ルール](https://info.atcoder.jp/entry/llm-rules-ja)）。VS Code 拡張の **本番モード**（コンテスト用に作成すると自動で入る）では、生成 AI を呼ぶボタンを止めている。添削をもらうのは過去問の練習と、コンテスト終了後の振り返りだけ。
 - 添削は、ノート欄の **🤖 Claude で添削** ボタン（裏で Claude Code を非対話で起動）か claude.ai のスキル `atcoder-review` で行う。ボタンから起動した Claude にはファイルの編集と git を禁止しており、`note.md` への反映は差分を見て自分で適用する（[使い方](docs/workflow.md#claude-で添削をもらう)）。
