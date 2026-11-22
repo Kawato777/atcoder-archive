@@ -42,8 +42,9 @@ ll ceil_div(ll a, ll b) { return a / b + (a % b != 0 && ((a < 0) == (b < 0))); }
 // ---- グリッド: (i, j) が H×W の内側か ----
 bool is_in_grid(ll i, ll j, ll h, ll w) { return 0 <= i && i < h && 0 <= j && j < w; }
 
-// ---- 出力: Yes / No ----
+// ---- 出力: yes_no は Yes / No、YES_NO は YES / NO ----
 void yes_no(bool ok) { cout << (ok ? "Yes" : "No") << '\n'; }
+void YES_NO(bool ok) { cout << (ok ? "YES" : "NO") << '\n'; }
 
 int main() {
     ios::sync_with_stdio(false);
