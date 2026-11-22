@@ -33,7 +33,7 @@ type ImportMessage = {
   readonly tasks: string;
 };
 
-type FromWebview = ImportMessage | { readonly type: "open"; readonly file: string };
+type FromWebview = ImportMessage | { readonly type: "open"; readonly file: string } | { readonly type: "toggleMode" };
 
 const LINE = /^\s*(\S+): (\S+) \((.+?)\)(?:, サンプル: (.+))?$/;
 
@@ -44,7 +44,7 @@ export const parseNewOutput = (stdout: string): readonly ImportedTask[] =>
   });
 
 const isMessage = (m: unknown): m is FromWebview =>
-  typeof m === "object" && m !== null && "type" in m && (m.type === "import" || m.type === "open");
+  typeof m === "object" && m !== null && "type" in m && (m.type === "import" || m.type === "open" || m.type === "toggleMode");
 
 /** 問題ラベルは英数字だけ許可する（"-" 始まりはオプションと解釈されるので不可） */
 const words = (s: string): readonly string[] => s.trim().split(/\s+/).filter((w) => w !== "");
@@ -70,6 +70,7 @@ export class ImportViewProvider implements vscode.WebviewViewProvider, vscode.Di
     view.webview.onDidReceiveMessage((m: unknown) => {
       if (!isMessage(m)) return;
       if (m.type === "import") void this.import(m);
+      else if (m.type === "toggleMode") void this.modes.toggle();
       else void this.open(m.file);
     });
     this.post();
@@ -97,7 +98,7 @@ export class ImportViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return;
     }
     if (m.mode === "practice" && this.modes.isContest) {
-      this.setState({ tasks: [], error: "本番モード中は過去問の取得を止めています（ステータスバーで練習モードに戻せます）" });
+      this.setState({ tasks: [], error: "本番モード中は過去問の取得を止めています（この欄の先頭で練習モードに戻せます）" });
       return;
     }
     if (m.mode === "contest" && !canCreateForContest(m.kind)) {
@@ -123,7 +124,7 @@ export class ImportViewProvider implements vscode.WebviewViewProvider, vscode.Di
     // コンテスト用に作成したら本番モードに入る（生成 AI の機能を止める）
     if (m.mode === "contest" && result.code === 0 && !this.modes.isContest) {
       await this.modes.set("contest");
-      void vscode.window.showInformationMessage("本番モードに切り替えました。終了後はステータスバーから練習モードに戻してください");
+      void vscode.window.showInformationMessage("本番モードに切り替えました。終了後はインポート欄の先頭から練習モードに戻してください");
     }
     const first = tasks[0];
     if (first) await this.open(first.file);
@@ -138,6 +139,10 @@ export class ImportViewProvider implements vscode.WebviewViewProvider, vscode.Di
 }
 
 const BODY = `
+<div id="modeBar" class="mode-bar">
+  <span id="modeLabel"></span>
+  <button id="modeBtn" type="button" class="secondary"></button>
+</div>
 <form id="form">
   <label for="kind">種類</label>
   <select id="kind"></select>
@@ -160,6 +165,7 @@ const KINDS = ${JSON.stringify(CONTEST_KINDS)};
 const $ = (id) => document.getElementById(id);
 const kind = $("kind"), value = $("value"), tasks = $("tasks");
 const practiceBtn = $("practice"), contestBtn = $("contest");
+$("modeBtn").addEventListener("click", () => vscode.postMessage({ type: "toggleMode" }));
 
 kind.innerHTML = KINDS.map((k) => '<option value="' + esc(k.id) + '">' + esc(k.label) + '</option>').join("");
 
@@ -204,6 +210,12 @@ $("result").addEventListener("click", (e) => {
 window.addEventListener("message", ({ data }) => {
   if (data.type !== "state") return;
   const { running, tasks: list, error } = data.state;
+  $("modeBar").classList.toggle("contest", data.contestMode);
+  $("modeLabel").textContent = data.contestMode ? "🔥 本番モード" : "🧪 練習モード";
+  $("modeBtn").textContent = data.contestMode ? "練習モードへ" : "本番モードへ";
+  $("modeBtn").title = data.contestMode
+    ? "コンテストが終わったら押す（確認が出る）。ノートと Claude の機能が使えるようになる"
+    : "ノート・Claude の機能・過去問の取得を止める";
   practiceBtn.disabled = (running !== undefined && running !== null) || data.contestMode;
   practiceBtn.title = data.contestMode ? "本番モード中は使えません" : "";
   practiceBtn.textContent = running === "practice" ? "取得中…" : "過去問を取得";

@@ -17,7 +17,8 @@ using ll = long long;
 #endif
 
 // ---- 定数 ----
-constexpr ll INF = 1LL << 60;  // 足し算しても溢れにくい大きな値
+constexpr int inf = 1073741823;  // int 用の大きな値（2^30 - 1）。inf + inf でも int に収まる
+constexpr ll infl = 1LL << 60;   // long long 用の大きな値。infl + infl でも long long に収まる
 constexpr int dx[4] = {1, 0, -1, 0};
 constexpr int dy[4] = {0, 1, 0, -1};
 

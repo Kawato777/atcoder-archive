@@ -353,7 +353,7 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 }
 
 const BODY = `
-<div id="contestMode" class="muted" hidden>🔥 本番モード中はノートと Claude の機能を止めています。コンテストが終わったらステータスバーの「本番モード」から練習モードに戻してください。</div>
+<div id="contestMode" class="muted" hidden>🔥 本番モード中はノートと Claude の機能を止めています。コンテストが終わったらインポート欄の先頭の「練習モードへ」で戻してください。</div>
 <div id="target" class="muted">.cpp ファイルを開いてください</div>
 <div id="message" class="muted" style="margin-top:4px"></div>
 <button id="openNote" class="secondary" hidden>📝 ノートを開く</button>
