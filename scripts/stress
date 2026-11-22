@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""ランダムテスト: gen.py で作った小さい入力で、愚直解 (brute.cpp) と自分の解を比べる。
+
+使い方:
+    scripts/stress practice/ABC/485/C/main.cpp        # gen.py / brute.cpp を使う
+    scripts/stress contest/ABC/485/C.cpp              # C.gen.py / C.brute.cpp を使う
+    scripts/stress --seconds 30 --max 5000 <src>      # 打ち切り（既定: 10 秒 か 1000 件）
+    scripts/stress --json <src>                       # VS Code 拡張用（1 行 1 JSON で進み具合と結果を出す）
+
+最初に答えが食い違った（または自分の解が RE / TLE になった）入力で止まり、
+practice/ では test/hack-NNN.in/.out に、contest/ では <問題>.hack/hack-NNN.in/.out に保存する。
+比較は AtCoder と同じく空白・改行の違いを無視する。gen.py が失敗した seed（assert で捨てた入力など）は飛ばす。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import platform
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+RUN_TIMEOUT_SEC = 5  # 小さい入力なので、これを超えたら無限ループとみなす
+TIME_LIMIT_SEC = 2
+DISPLAY_LIMIT = 64 * 1024
+
+
+def companion_paths(src: Path) -> tuple[Path, Path, Path]:
+    """(gen.py, brute.cpp, hack ケースの保存先)"""
+    if src.name == "main.cpp":
+        return src.with_name("gen.py"), src.with_name("brute.cpp"), src.parent / "test"
+    return src.with_name(f"{src.stem}.gen.py"), src.with_name(f"{src.stem}.brute.cpp"), src.parent / f"{src.stem}.hack"
+
+
+def build_flags() -> list[str]:
+    flags = ["-std=gnu++23", "-O2", "-DLOCAL", "-D_GLIBCXX_DEBUG", "-D_GLIBCXX_DEBUG_PEDANTIC",
+             "-I", str(REPO_ROOT / ".lib" / "ac-library"), "-I", str(REPO_ROOT / "include")]
+    # macOS の GCC にはサニタイザが無い。Linux（devcontainer）では配列外アクセスや符号付きオーバーフローも止める
+    if platform.system() == "Linux":
+        flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=undefined", "-g"]
+    return flags
+
+
+def build(src: Path, out: Path, cxx: str) -> str | None:
+    """失敗したらコンパイラのメッセージを返す。ソースより新しいバイナリがあれば作り直さない"""
+    deps = [src, REPO_ROOT / "include" / "debug.hpp", Path(__file__)]
+    if out.exists() and all(d.stat().st_mtime < out.stat().st_mtime for d in deps if d.exists()):
+        return None
+    r = subprocess.run([cxx, *build_flags(), str(src), "-o", str(out)], capture_output=True, text=True)
+    return None if r.returncode == 0 else r.stderr
+
+
+def run(cmd: list[str], stdin: str | None) -> tuple[int | None, str, str, float]:
+    """(終了コード（タイムアウトなら None）, stdout, stderr, 秒)"""
+    started = time.perf_counter()
+    try:
+        r = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=RUN_TIMEOUT_SEC)
+        return r.returncode, r.stdout, r.stderr, time.perf_counter() - started
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+        return None, out, "", time.perf_counter() - started
+
+
+def same(expected: str, actual: str) -> bool:
+    return expected.split() == actual.split()
+
+
+def truncate(s: str) -> str:
+    return s if len(s) <= DISPLAY_LIMIT else s[:DISPLAY_LIMIT] + f"\n...（{len(s) - DISPLAY_LIMIT} 文字省略）"
+
+
+def next_hack_name(directory: Path) -> str:
+    i = 0
+    while (directory / f"hack-{i:03d}.in").exists() or (directory / f"hack-{i:03d}.out").exists():
+        i += 1
+    return f"hack-{i:03d}"
+
+
+class Reporter:
+    def __init__(self, as_json: bool) -> None:
+        self.as_json = as_json
+        self.last_progress = 0.0
+
+    def emit(self, kind: str, **data: object) -> None:
+        if self.as_json:
+            print(json.dumps({"type": kind, **data}, ensure_ascii=False), flush=True)
+            return
+        if kind == "progress":
+            if time.perf_counter() - self.last_progress > 0.5:
+                self.last_progress = time.perf_counter()
+                print(f"\r{data['done']} 件一致（飛ばした seed {data['skipped']}）", end="", file=sys.stderr, flush=True)
+        elif kind == "status":
+            print(data["message"], file=sys.stderr)
+        elif kind == "error":
+            print(f"\nエラー: {data['message']}", file=sys.stderr)
+            if data.get("detail"):
+                print(data["detail"], file=sys.stderr)
+        elif kind == "pass":
+            print(f"\n{data['done']} 件すべて一致（{data['seconds']:.1f} 秒、飛ばした seed {data['skipped']}）")
+            if data.get("gen_error"):
+                print(f"gen.py の最後のエラー: {data['gen_error']}")
+        elif kind == "found":
+            print(f"\n{data['verdict']}（seed {data['seed']}、{data['done']} 件目）。保存先: {data['saved']}")
+            print("--- 入力 ---\n" + str(data["input"]))
+            print("--- 愚直解の出力 ---\n" + str(data["expected"]))
+            print("--- あなたの出力 ---\n" + str(data["actual"]))
+            if data.get("stderr"):
+                print("--- 標準エラー出力 ---\n" + str(data["stderr"]))
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description="ランダムテスト（愚直解との比較）")
+    p.add_argument("src")
+    p.add_argument("--seconds", type=float, default=10.0)
+    p.add_argument("--max", type=int, default=1000)
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args()
+    rep = Reporter(args.json)
+
+    src = Path(args.src).resolve()
+    gen, brute, hack_dir = companion_paths(src)
+    missing = [x.name for x in (gen, brute) if not x.exists()]
+    if missing:
+        rep.emit("error", message=f"{', '.join(missing)} がありません。scripts/gen-init {args.src} で雛形を作ってください",
+                 missing=missing)
+        return 2
+
+    cxx = "g++-15" if subprocess.run(["which", "g++-15"], capture_output=True).returncode == 0 else "g++"
+    main_bin = src.with_name(f"{src.stem}.stress.out")
+    brute_bin = brute.with_name(f"{brute.stem}.stress.out")
+    rep.emit("status", message="ビルド中…", phase="build")
+    for s, b, label in ((src, main_bin, "自分の解"), (brute, brute_bin, "愚直解")):
+        err = build(s, b, cxx)
+        if err is not None:
+            rep.emit("error", message=f"{label}（{s.name}）のビルドに失敗しました", detail=truncate(err))
+            return 1
+
+    rep.emit("status", message="実行中…", phase="run")
+    started = time.perf_counter()
+    done = skipped = 0
+    gen_error = ""
+    seed = 0
+    while done < args.max and time.perf_counter() - started < args.seconds:
+        seed += 1
+        code, given, err, _ = run([sys.executable, str(gen), str(seed)], None)
+        if code != 0 or not given.strip():
+            skipped += 1
+            gen_error = (err.strip().splitlines() or ["出力が空"])[-1]
+            if skipped >= 50 and done == 0:
+                rep.emit("error", message="gen.py が入力を作れません（50 回続けて失敗）", detail=truncate(err or "出力が空"))
+                return 1
+            continue
+
+        b_code, expected, b_err, _ = run([str(brute_bin)], given)
+        if b_code != 0:
+            rep.emit("error", message="愚直解が " + ("TLE（無限ループ？）" if b_code is None else f"RE（終了コード {b_code}）")
+                     + " になりました。brute.cpp を確認してください", detail=truncate(given + "\n--- stderr ---\n" + b_err),
+                     input=truncate(given))
+            return 1
+
+        m_code, actual, m_err, sec = run([str(main_bin)], given)
+        verdict = ("TLE" if m_code is None or sec > TIME_LIMIT_SEC else "RE" if m_code != 0
+                   else "AC" if same(expected, actual) else "WA")
+        done += 1
+        if verdict != "AC":
+            hack_dir.mkdir(parents=True, exist_ok=True)
+            name = next_hack_name(hack_dir)
+            (hack_dir / f"{name}.in").write_text(given)
+            (hack_dir / f"{name}.out").write_text(expected)
+            rep.emit("found", verdict=verdict, seed=seed, done=done, saved=str((hack_dir / name).relative_to(REPO_ROOT)),
+                     input=truncate(given), expected=truncate(expected), actual=truncate(actual), stderr=truncate(m_err),
+                     timeMs=round(sec * 1000))
+            return 1
+        rep.emit("progress", done=done, skipped=skipped)
+
+    rep.emit("pass", done=done, skipped=skipped, seconds=time.perf_counter() - started, gen_error=gen_error)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

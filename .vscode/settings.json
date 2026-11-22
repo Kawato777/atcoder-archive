@@ -11,7 +11,7 @@
   "C_Cpp.clang_format_fallbackStyle": "{ BasedOnStyle: Google, IndentWidth: 4, ColumnLimit: 0, AllowShortIfStatementsOnASingleLine: true, AllowShortLoopsOnASingleLine: true }",
   "C_Cpp.default.compilerPath": "/opt/homebrew/bin/g++-15",
   "C_Cpp.default.cppStandard": "gnu++23",
-  "C_Cpp.default.includePath": ["${workspaceFolder}/.lib/ac-library"],
+  "C_Cpp.default.includePath": ["${workspaceFolder}/.lib/ac-library", "${workspaceFolder}/include"],
   "C_Cpp.default.defines": ["LOCAL"],
 
   // ビルド成果物をエクスプローラーから隠す

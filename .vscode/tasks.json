@@ -41,6 +41,8 @@
         "-DLOCAL",
         "-I",
         "${workspaceFolder}/.lib/ac-library",
+        "-I",
+        "${workspaceFolder}/include",
         "${file}",
         "-o",
         "${fileDirname}/${fileBasenameNoExtension}.out"
@@ -78,6 +80,8 @@
         "-DLOCAL",
         "-I",
         "${workspaceFolder}/.lib/ac-library",
+        "-I",
+        "${workspaceFolder}/include",
         "${file}",
         "-o",
         "${fileDirname}/${fileBasenameNoExtension}.out"

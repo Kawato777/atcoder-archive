@@ -30,6 +30,11 @@ const STYLE = `
   pre { margin: 2px 0 6px; padding: 4px 6px; overflow-x: auto; white-space: pre;
         background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); }
   h4 { margin: 6px 0 0; font-weight: 600; }
+  .mode-bar { display: flex; align-items: center; justify-content: space-between; gap: 6px;
+              margin: 0 -8px 6px; padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+  .mode-bar button { margin: 0; }
+  .mode-bar.contest { color: var(--vscode-statusBarItem-warningForeground);
+                      background: var(--vscode-statusBarItem-warningBackground); }
 `;
 
 export const nonce = (): string => randomBytes(16).toString("base64");

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { type ReviewRun, startReview } from "./claudeReview";
 import { type PanelAction, type PreviewContentProvider, ReviewPanel } from "./reviewPanel";
+import type { ModeManager } from "./mode";
 import { findRepoRoot, run } from "./process";
 import { page } from "./webview";
 
@@ -86,20 +87,28 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   private view: vscode.WebviewView | undefined;
   private state: State = INITIAL;
   private readonly subscription: vscode.Disposable;
+  private readonly modeSubscription: vscode.Disposable;
   /** 実行中の claude -p（1 つだけ） */
   private review: ReviewRun | undefined;
 
   constructor(
     private readonly preview: PreviewContentProvider,
     private readonly output: vscode.OutputChannel,
+    private readonly modes: ModeManager,
   ) {
     this.track(vscode.window.activeTextEditor);
     // Webview をクリックすると activeTextEditor が undefined になるので、最後に開いた .cpp を対象として保持する
     this.subscription = vscode.window.onDidChangeActiveTextEditor((e) => this.track(e));
+    this.modeSubscription = modes.onDidChange((mode) => {
+      // 本番モードに入ったら実行中の添削も止める
+      if (mode === "contest") this.review?.cancel();
+      this.post();
+    });
   }
 
   dispose(): void {
     this.subscription.dispose();
+    this.modeSubscription.dispose();
     this.review?.cancel();
   }
 
@@ -110,6 +119,8 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     view.webview.onDidReceiveMessage((raw: unknown) => {
       const m = parseMessage(raw);
       if (m === undefined) return;
+      // 本番モードでは生成 AI を呼ぶ操作を受け付けない（ボタンも隠しているが、念のため拡張側でも止める）
+      if (this.modes.isContest && m.type !== "cancelClaude") return;
       if (m.type === "openNote") void this.openNote();
       else if (m.type === "applyClaude") void this.applyClaude();
       else if (m.type === "reviewClaude") void this.reviewClaude();
@@ -161,7 +172,7 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   private post(): void {
-    void this.view?.webview.postMessage({ type: "state", state: this.state });
+    void this.view?.webview.postMessage({ type: "state", state: this.state, contestMode: this.modes.isContest });
   }
 
   /** 作成済みの note.md をエディタで開く */
@@ -342,6 +353,7 @@ export class NoteViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 }
 
 const BODY = `
+<div id="contestMode" class="muted" hidden>🔥 本番モード中はノートと Claude の機能を止めています。コンテストが終わったらインポート欄の先頭の「練習モードへ」で戻してください。</div>
 <div id="target" class="muted">.cpp ファイルを開いてください</div>
 <div id="message" class="muted" style="margin-top:4px"></div>
 <button id="openNote" class="secondary" hidden>📝 ノートを開く</button>
@@ -364,14 +376,18 @@ $("cancelClaude").addEventListener("click", () => vscode.postMessage({ type: "ca
 window.addEventListener("message", ({ data }) => {
   if (data.type !== "state") return;
   const s = data.state;
-  const info = s.note;
+  const contest = data.contestMode;
+  $("contestMode").hidden = !contest;
+  $("target").hidden = contest;
+  $("message").hidden = contest;
+  const info = contest ? undefined : s.note;
   $("target").textContent = s.label ?? ".cpp ファイルを開いてください";
   $("openNote").hidden = !info || !info.exists;
   $("applyClaude").hidden = !info;
   // 実行中は 1 つだけ。状況は新しいものほど下に出す（最後の行が実行中）
   const c = s.claude;
   $("reviewClaude").hidden = !info || !!c;
-  $("claude").hidden = !c;
+  $("claude").hidden = !c || contest;
   if (c) {
     $("claudeTitle").textContent = "🤖 添削中: " + c.label;
     $("claudeSteps").innerHTML = c.steps
