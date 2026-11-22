@@ -15,7 +15,7 @@
 | [`chmin` / `chmax`](#chmin--chmax-最小値最大値の更新) | 小さく（大きく）なったときだけ更新する |
 | [`floor_div` / `ceil_div`](#floor_div--ceil_div-負の数でも正しい切り捨て切り上げ) | 負の数でも正しい切り捨て・切り上げ |
 | [`is_in_grid`](#dx--dy-と-is_in_grid-グリッドの-4-方向) | グリッドの範囲内か |
-| [`yes_no`](#yes_no-yes--no-の出力) | `Yes` / `No` を出す |
+| [`yes_no` / `YES_NO`](#yes_no--yes_no-yes--no-と-yes--no-の出力) | `Yes` / `No`（`YES` / `NO`）を出す |
 
 `main` の先頭にある `ios::sync_with_stdio(false); cin.tie(nullptr);` は入出力を速くするための 2 行。消さない。これを入れたら `printf` / `scanf` と `cin` / `cout` を混ぜて使わないこと（出力の順番が崩れる）。
 
@@ -180,13 +180,14 @@ ll lap = floor_div(pos, m);
 
 - 正の数どうしなら `(a + b - 1) / b` でも切り上げられるが、負の数が混ざると壊れる。迷ったら `ceil_div` を使う
 
-## `yes_no`: `Yes` / `No` の出力
+## `yes_no` / `YES_NO`: `Yes` / `No` と `YES` / `NO` の出力
 
 ```cpp
 yes_no(n % 2 == 0);  // n = 4 なら "Yes"、n = 3 なら "No"（改行付き）
+YES_NO(n % 2 == 0);  // n = 4 なら "YES"、n = 3 なら "NO"（改行付き）
 ```
 
-- AtCoder でよく使う表記 `Yes` / `No`（先頭だけ大文字）で出す。問題によっては `YES` や `yes` を求めるので、問題文の出力例と見比べる
+- AtCoder でよく使う表記 `Yes` / `No`（先頭だけ大文字）は `yes_no`、すべて大文字の `YES` / `NO` は `YES_NO` で出す。`yes` / `no` など他の表記を求める問題もあるので、問題文の出力例と見比べる
 - 出力したあとで終わりたいときは `yes_no(ok); return 0;`
 
 ---
