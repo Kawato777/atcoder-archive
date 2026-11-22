@@ -57,7 +57,7 @@ int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    int n, k;
+    ll n, k;
     cin >> n >> k;
     vector<vector<int>> A(n);
     for (auto&& a : A) {
@@ -67,14 +67,27 @@ int main() {
         cin >> b;
         a = b;
     }
-    vector<int> C(n);
+    vector<ll> C(n);
     cin >> C;
-    vector<int> B;
-    rep(i, n) {
-        rep(j, C[i]) {
-            B.append_range(A[i]);
-        }
+    vector<ll> B(n);
+    B[0] = A[0].size() * C[0];
+    rep(i, n - 1) {
+        B[i + 1] = B[i] + A[i + 1].size() * C[i + 1];
     }
-    cout << B[k - 1] << endl;
+    ll l = 0;
+    rep(i, n) {
+        if (B[i] >= k) break;
+        l++;
+    }
+    if (l == 0) {
+        ll d = (k - 1) % A[l].size();
+        cout << A[0][d] << endl;
+        dbg(d, n, k);
+    } else {
+        ll d = (k - B[l - 1] - 1) % A[l].size();
+        cout << A[l][d] << endl;
+        dbg(d, k, n);
+    }
+    dbg(l, B);
     return 0;
 }

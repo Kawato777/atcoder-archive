@@ -76,5 +76,6 @@ int main() {
         }
     }
     cout << B[k - 1] << endl;
+    dbg(B);
     return 0;
 }

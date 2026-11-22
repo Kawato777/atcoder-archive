@@ -69,7 +69,7 @@ def tree(n):
 N = size(1, 2 * 10**5)
 L = [size(1,2 * 10**5) for _ in range(N)]
 A = [arr(l,1,10**9) for l in L]
-C = [rnd(1,5) for _ in range(N)]
+C = [size(1, 10**9) for _ in range(N)]  # brute が C_i 回ループするので小さく保つ
 K = edge(1,sum(c*l for c, l in zip(C,L)))
 
 print(N,K)
