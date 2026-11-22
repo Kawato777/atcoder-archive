@@ -5,10 +5,11 @@
     scripts/stress practice/ABC/485/C/main.cpp        # gen.py / brute.cpp を使う
     scripts/stress contest/ABC/485/C.cpp              # C.gen.py / C.brute.cpp を使う
     scripts/stress --seconds 30 --max 5000 <src>      # 打ち切り（既定: 10 秒 か 1000 件）
+    scripts/stress --no-brute <src>                   # brute.cpp なし。RE / TLE だけを調べる（WA は見ない）
     scripts/stress --json <src>                       # VS Code 拡張用（1 行 1 JSON で進み具合と結果を出す）
 
 最初に答えが食い違った（または自分の解が RE / TLE になった）入力で止まり、
-practice/ では test/hack-NNN.in/.out に、contest/ では <問題>.hack/hack-NNN.in/.out に保存する。
+practice/ では test/hack-NNN.in/.out（--no-brute では .in だけ）に、contest/ では <問題>.hack/hack-NNN.in/.out に保存する。
 比較は AtCoder と同じく空白・改行の違いを無視する。gen.py が失敗した seed（assert で捨てた入力など）は飛ばす。
 """
 
@@ -99,13 +100,18 @@ class Reporter:
             if data.get("detail"):
                 print(data["detail"], file=sys.stderr)
         elif kind == "pass":
-            print(f"\n{data['done']} 件すべて一致（{data['seconds']:.1f} 秒、飛ばした seed {data['skipped']}）")
+            if data.get("bruteless"):
+                print(f"\n{data['done']} 件すべて RE / TLE なし（{data['seconds']:.1f} 秒、飛ばした seed {data['skipped']}）。"
+                      "愚直解がないので WA は調べていません")
+            else:
+                print(f"\n{data['done']} 件すべて一致（{data['seconds']:.1f} 秒、飛ばした seed {data['skipped']}）")
             if data.get("gen_error"):
                 print(f"gen.py の最後のエラー: {data['gen_error']}")
         elif kind == "found":
             print(f"\n{data['verdict']}（seed {data['seed']}、{data['done']} 件目）。保存先: {data['saved']}")
             print("--- 入力 ---\n" + str(data["input"]))
-            print("--- 愚直解の出力 ---\n" + str(data["expected"]))
+            if not data.get("bruteless"):
+                print("--- 愚直解の出力 ---\n" + str(data["expected"]))
             print("--- あなたの出力 ---\n" + str(data["actual"]))
             if data.get("stderr"):
                 print("--- 標準エラー出力 ---\n" + str(data["stderr"]))
@@ -117,12 +123,14 @@ def main() -> int:
     p.add_argument("--seconds", type=float, default=10.0)
     p.add_argument("--max", type=int, default=1000)
     p.add_argument("--json", action="store_true")
+    p.add_argument("--no-brute", action="store_true", help="brute.cpp を使わず、RE / TLE だけを調べる")
     args = p.parse_args()
     rep = Reporter(args.json)
 
     src = Path(args.src).resolve()
     gen, brute, hack_dir = companion_paths(src)
-    missing = [x.name for x in (gen, brute) if not x.exists()]
+    bruteless = args.no_brute
+    missing = [x.name for x in ((gen,) if bruteless else (gen, brute)) if not x.exists()]
     if missing:
         rep.emit("error", message=f"{', '.join(missing)} がありません。scripts/gen-init {args.src} で雛形を作ってください",
                  missing=missing)
@@ -132,7 +140,8 @@ def main() -> int:
     main_bin = src.with_name(f"{src.stem}.stress.out")
     brute_bin = brute.with_name(f"{brute.stem}.stress.out")
     rep.emit("status", message="ビルド中…", phase="build")
-    for s, b, label in ((src, main_bin, "自分の解"), (brute, brute_bin, "愚直解")):
+    targets = [(src, main_bin, "自分の解")] + ([] if bruteless else [(brute, brute_bin, "愚直解")])
+    for s, b, label in targets:
         err = build(s, b, cxx)
         if err is not None:
             rep.emit("error", message=f"{label}（{s.name}）のビルドに失敗しました", detail=truncate(err))
@@ -154,7 +163,7 @@ def main() -> int:
                 return 1
             continue
 
-        b_code, expected, b_err, _ = run([str(brute_bin)], given)
+        b_code, expected, b_err = (0, "", "") if bruteless else run([str(brute_bin)], given)[:3]
         if b_code != 0:
             rep.emit("error", message="愚直解が " + ("TLE（無限ループ？）" if b_code is None else f"RE（終了コード {b_code}）")
                      + " になりました。brute.cpp を確認してください", detail=truncate(given + "\n--- stderr ---\n" + b_err),
@@ -163,20 +172,22 @@ def main() -> int:
 
         m_code, actual, m_err, sec = run([str(main_bin)], given)
         verdict = ("TLE" if m_code is None or sec > TIME_LIMIT_SEC else "RE" if m_code != 0
-                   else "AC" if same(expected, actual) else "WA")
+                   else "AC" if bruteless or same(expected, actual) else "WA")
         done += 1
         if verdict != "AC":
             hack_dir.mkdir(parents=True, exist_ok=True)
             name = next_hack_name(hack_dir)
             (hack_dir / f"{name}.in").write_text(given)
-            (hack_dir / f"{name}.out").write_text(expected)
+            if not bruteless:
+                (hack_dir / f"{name}.out").write_text(expected)
             rep.emit("found", verdict=verdict, seed=seed, done=done, saved=str((hack_dir / name).relative_to(REPO_ROOT)),
                      input=truncate(given), expected=truncate(expected), actual=truncate(actual), stderr=truncate(m_err),
-                     timeMs=round(sec * 1000))
+                     timeMs=round(sec * 1000), bruteless=bruteless)
             return 1
         rep.emit("progress", done=done, skipped=skipped)
 
-    rep.emit("pass", done=done, skipped=skipped, seconds=time.perf_counter() - started, gen_error=gen_error)
+    rep.emit("pass", done=done, skipped=skipped, seconds=time.perf_counter() - started, gen_error=gen_error,
+             bruteless=bruteless)
     return 0
 
 

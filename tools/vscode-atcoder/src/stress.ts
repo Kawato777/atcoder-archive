@@ -18,8 +18,16 @@ export type StressEvent =
       readonly actual: string;
       readonly stderr: string;
       readonly timeMs: number;
+      readonly bruteless?: boolean;
     }
-  | { readonly type: "pass"; readonly done: number; readonly skipped: number; readonly seconds: number; readonly gen_error: string }
+  | {
+      readonly type: "pass";
+      readonly done: number;
+      readonly skipped: number;
+      readonly seconds: number;
+      readonly gen_error: string;
+      readonly bruteless?: boolean;
+    }
   | { readonly type: "error"; readonly message: string; readonly detail?: string; readonly missing?: readonly string[] };
 
 /** main.cpp -> gen.py, brute.cpp / C.cpp -> C.gen.py, C.brute.cpp（scripts/stress と同じ） */
@@ -54,10 +62,14 @@ export type StressRun = { readonly done: Promise<void>; readonly cancel: () => v
 export const startStress = (
   root: string,
   file: string,
-  options: { readonly seconds: number; readonly maxCases: number },
+  options: { readonly seconds: number; readonly maxCases: number; readonly bruteless?: boolean },
   onEvent: (e: StressEvent) => void,
 ): StressRun => {
-  const args = ["--json", "--seconds", String(options.seconds), "--max", String(options.maxCases), file];
+  const args = [
+    "--json", "--seconds", String(options.seconds), "--max", String(options.maxCases),
+    ...(options.bruteless === true ? ["--no-brute"] : []),
+    file,
+  ];
   const child: ChildProcess = spawn(path.join(root, "scripts", "stress"), args, { cwd: root, env: toolEnv() });
   let buffer = "";
   let stderr = "";

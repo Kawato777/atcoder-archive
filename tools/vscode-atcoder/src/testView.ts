@@ -26,11 +26,13 @@ type State = {
   readonly companions: { readonly gen: boolean; readonly brute: boolean };
   /** ランダムテストの進み具合 */
   readonly stress: { readonly done: number; readonly skipped: number } | undefined;
+  /** ランダムテストを brute.cpp なし（RE / TLE だけ）で回しているか */
+  readonly bruteless: boolean;
   /** 成功時などの補足（エラーではないもの） */
   readonly notice: string | undefined;
 };
 
-const MESSAGE_TYPES = ["run", "runInput", "openProblem", "submit", "stress", "stopStress", "genInit", "openGen"] as const;
+const MESSAGE_TYPES = ["run", "runInput", "stress", "stressNoBrute", "stopStress", "genInit", "openGen"] as const;
 type FromWebview = { readonly type: (typeof MESSAGE_TYPES)[number] };
 
 const INITIAL: State = {
@@ -44,6 +46,7 @@ const INITIAL: State = {
   error: undefined,
   companions: { gen: false, brute: false },
   stress: undefined,
+  bruteless: false,
   notice: undefined,
 };
 
@@ -52,10 +55,6 @@ export const parseProblem = (source: string): Problem | undefined => {
   const m = /^\s*\/\/\s*https:\/\/atcoder\.jp\/contests\/([\w-]+)\/tasks\/([\w-]+)/.exec(source);
   return m && m[1] && m[2] ? { contest: m[1], task: m[2] } : undefined;
 };
-
-const problemUrl = (p: Problem): string => `https://atcoder.jp/contests/${p.contest}/tasks/${p.task}`;
-const submitUrl = (p: Problem): string =>
-  `https://atcoder.jp/contests/${p.contest}/submit?taskScreenName=${encodeURIComponent(p.task)}`;
 
 const isMessage = (m: unknown): m is FromWebview =>
   typeof m === "object" && m !== null && "type" in m && MESSAGE_TYPES.some((t) => t === m.type);
@@ -94,12 +93,11 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       if (!isMessage(m)) return;
       if (m.type === "run") void this.runTests();
       else if (m.type === "runInput") void this.runInput();
-      else if (m.type === "openProblem") void this.openProblem();
-      else if (m.type === "stress") void this.runStress();
+      else if (m.type === "stress") void this.runStress(false);
+      else if (m.type === "stressNoBrute") void this.runStress(true);
       else if (m.type === "stopStress") this.stressRun?.cancel();
       else if (m.type === "genInit") void this.genInit();
-      else if (m.type === "openGen") void this.openCompanions();
-      else void this.submit();
+      else void this.openCompanions();
     });
     view.onDidChangeVisibility(() => this.post());
     this.post();
@@ -211,8 +209,8 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.setState({ phase: "idle", results });
   }
 
-  /** scripts/stress で、gen.py の入力に対する brute.cpp と自分の解の出力を比べる */
-  private async runStress(): Promise<void> {
+  /** scripts/stress で、gen.py の入力に対する brute.cpp と自分の解の出力を比べる（bruteless なら RE / TLE だけ調べる） */
+  private async runStress(bruteless: boolean): Promise<void> {
     const { file, phase } = this.state;
     if (file === undefined || phase !== "idle") return;
     const root = findRepoRoot();
@@ -221,40 +219,45 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       return;
     }
     const companions = hasCompanions(file);
-    if (!companions.gen || !companions.brute) {
-      this.setState({ companions, results: [], error: "gen.py と brute.cpp が必要です。「🎲 雛形を作る」で作ってください" });
+    if (!companions.gen || (!bruteless && !companions.brute)) {
+      this.setState({
+        companions, results: [],
+        error: bruteless ? "gen.py が必要です。「🎲 雛形を作る」で作ってください" : "gen.py と brute.cpp が必要です。「🎲 雛形を作る」で作ってください",
+      });
       return;
     }
     // 編集中のファイルを保存してから回す
     const { gen, brute } = companionPaths(file);
-    await Promise.all([file, gen, brute].map((f) => this.saveAndRead(f)));
+    await Promise.all((bruteless ? [file, gen] : [file, gen, brute]).map((f) => this.saveAndRead(f)));
 
     const config = vscode.workspace.getConfiguration("atcoder.stress");
     this.setState({
       phase: "build", kind: "stress", total: 0, results: [], error: undefined, notice: undefined,
-      stress: { done: 0, skipped: 0 },
+      stress: { done: 0, skipped: 0 }, bruteless,
     });
     this.stressRun = startStress(
       root,
       file,
-      { seconds: config.get<number>("seconds", 10), maxCases: config.get<number>("maxCases", 1000) },
+      { seconds: config.get<number>("seconds", 10), maxCases: config.get<number>("maxCases", 1000), bruteless },
       (e) => {
         if (e.type === "status") this.setState({ phase: e.phase });
         else if (e.type === "progress") this.setState({ stress: { done: e.done, skipped: e.skipped } });
         else if (e.type === "pass") {
           this.setState({
             stress: { done: e.done, skipped: e.skipped },
-            notice: `${e.done} 件すべて一致（${e.seconds.toFixed(1)} 秒）` +
+            notice: (bruteless
+              ? `${e.done} 件すべて RE / TLE なし（${e.seconds.toFixed(1)} 秒）。愚直解がないので WA は調べていません`
+              : `${e.done} 件すべて一致（${e.seconds.toFixed(1)} 秒）`) +
               (e.skipped > 0 ? `。gen.py が失敗して飛ばした seed: ${e.skipped}（最後のエラー: ${e.gen_error}）` : ""),
           });
         } else if (e.type === "found") {
           const saved = path.basename(e.saved);
           this.setState({
             stress: { done: e.done, skipped: this.state.stress?.skipped ?? 0 },
-            notice: `seed ${e.seed}（${e.done} 件目）で ${e.verdict}。${e.saved}.in/.out に保存しました` +
+            notice: `seed ${e.seed}（${e.done} 件目）で ${e.verdict}。${e.saved}${bruteless ? ".in" : ".in/.out"} に保存しました` +
               (e.saved.includes(`${path.sep}test${path.sep}`) || e.saved.includes("/test/") ? "（以後「▶ テスト実行」にも含まれます）" : ""),
             results: [{
-              name: saved, verdict: e.verdict, timeMs: e.timeMs, input: e.input, expected: e.expected,
+              name: saved, verdict: e.verdict, timeMs: e.timeMs, input: e.input, expected: bruteless ? undefined : e.expected,
               actual: e.actual, stderr: e.stderr, whitespaceDiff: false,
             }],
           });
@@ -275,7 +278,7 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     const root = findRepoRoot();
     if (root === undefined) return;
     await this.saveAndRead(file);
-    this.setState({ phase: "build", kind: "stress", results: [], error: undefined, notice: "問題ページから雛形を作成中…" });
+    this.setState({ phase: "build", kind: "stress", bruteless: false, results: [], error: undefined, notice: "問題ページから雛形を作成中…" });
     const result = await run(path.join(root, "scripts", "gen-init"), [file], root);
     this.setState({
       phase: "idle",
@@ -297,20 +300,6 @@ export class TestViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       }
     }
   }
-
-  private async openProblem(): Promise<void> {
-    const { problem } = this.state;
-    if (problem) await vscode.env.openExternal(vscode.Uri.parse(problemUrl(problem)));
-  }
-
-  /** コードをクリップボードにコピーして提出ページを開く（提出はブラウザで手動） */
-  private async submit(): Promise<void> {
-    const { file, problem } = this.state;
-    if (file === undefined || problem === undefined) return;
-    await vscode.env.clipboard.writeText(await this.saveAndRead(file));
-    await vscode.env.openExternal(vscode.Uri.parse(submitUrl(problem)));
-    void vscode.window.showInformationMessage("コードをコピーしました。提出ページに貼り付けて、言語に C++23 (GCC 15.2.0) を選んでください");
-  }
 }
 
 const BODY = `
@@ -318,11 +307,10 @@ const BODY = `
 <div>
   <button id="run">▶ テスト実行</button>
   <button id="runInput" class="secondary" title="ソースと同じフォルダの input.txt を入力にして実行する">▶ input.txt で実行</button>
-  <button id="openProblem" class="secondary">問題を開く</button>
-  <button id="submit" class="secondary">コピーして提出ページへ</button>
 </div>
 <div>
   <button id="stress" title="gen.py の小さい入力で brute.cpp（愚直解）と出力を比べる">▶ ランダムテスト</button>
+  <button id="stressNoBrute" class="secondary" title="brute.cpp なし。gen.py の入力で RE / TLE だけを調べる（WA は調べない）">▶ クラッシュ/TLE 検出</button>
   <button id="stopStress" class="secondary" hidden>停止</button>
   <button id="genInit" class="secondary" title="問題ページの入力形式と制約から gen.py と brute.cpp の雛形を作る">🎲 雛形を作る</button>
   <button id="openGen" class="secondary" hidden>gen.py / brute.cpp を開く</button>
@@ -334,7 +322,7 @@ const BODY = `
 
 const SCRIPT = `
 const $ = (id) => document.getElementById(id);
-for (const type of ["run", "runInput", "openProblem", "submit", "stress", "stopStress", "genInit", "openGen"]) {
+for (const type of ["run", "runInput", "stress", "stressNoBrute", "stopStress", "genInit", "openGen"]) {
   $(type).addEventListener("click", () => vscode.postMessage({ type }));
 }
 
@@ -361,13 +349,13 @@ window.addEventListener("message", ({ data }) => {
   $("run").textContent = busy("samples", "▶ テスト実行");
   $("runInput").disabled = !s.file || s.phase !== "idle";
   $("runInput").textContent = busy("input", "▶ input.txt で実行");
-  $("openProblem").disabled = !s.problem;
-  $("submit").disabled = !s.problem || s.phase !== "idle";
   const ready = s.companions.gen && s.companions.brute;
   const stressing = s.kind === "stress" && s.phase !== "idle";
+  const progress = s.phase === "build" ? "準備中…" : "実行中… " + (s.stress ? s.stress.done : 0) + " 件";
   $("stress").disabled = !s.file || s.phase !== "idle" || !ready;
-  $("stress").textContent = !stressing ? "▶ ランダムテスト"
-    : s.phase === "build" ? "準備中…" : "実行中… " + (s.stress ? s.stress.done : 0) + " 件";
+  $("stress").textContent = stressing && !s.bruteless ? progress : "▶ ランダムテスト";
+  $("stressNoBrute").disabled = !s.file || s.phase !== "idle" || !s.companions.gen;
+  $("stressNoBrute").textContent = stressing && s.bruteless ? progress : "▶ クラッシュ/TLE 検出";
   $("stopStress").hidden = !stressing || !s.stress;
   $("genInit").hidden = ready;
   $("genInit").disabled = !s.file || s.phase !== "idle";

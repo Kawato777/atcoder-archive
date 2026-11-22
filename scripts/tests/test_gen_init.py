@@ -119,6 +119,35 @@ class StressTest(unittest.TestCase):
             self.assertIn("WA", r.stdout)
             self.assertTrue((problem / "test" / "hack-000.in").exists())
 
+    def test_no_brute_needs_only_gen_and_finds_runtime_error(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT / "practice") as d:
+            problem = Path(d)
+            (problem / "gen.py").write_text("import random, sys\nrandom.seed(int(sys.argv[1]))\nprint(random.randint(1, 5))\n")
+            stress = [str(REPO_ROOT / "scripts" / "stress"), "--seconds", "20", "--max", "50", "--no-brute", str(problem / "main.cpp")]
+            # 答えが間違っていても（WA は見ないので）通る。brute.cpp が無くてもエラーにならない
+            (problem / "main.cpp").write_text("#include <bits/stdc++.h>\nint main(){int n;std::cin>>n;std::cout<<n+1<<'\\n';}\n")
+            ok = subprocess.run(stress, capture_output=True, text=True)
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            self.assertIn("WA は調べていません", ok.stdout)
+            # n == 3 のときだけ範囲外アクセス（_GLIBCXX_DEBUG で RE になる）
+            (problem / "main.cpp").write_text(
+                "#include <bits/stdc++.h>\nint main(){int n;std::cin>>n;std::vector<int> v(1);std::cout<<(n==3?v.at(5):v[0])<<'\\n';}\n")
+            ng = subprocess.run(stress, capture_output=True, text=True)
+            self.assertEqual(ng.returncode, 1, ng.stdout + ng.stderr)
+            self.assertIn("RE", ng.stdout)
+            self.assertNotIn("愚直解の出力", ng.stdout)
+            self.assertTrue((problem / "test" / "hack-000.in").exists())
+            self.assertFalse((problem / "test" / "hack-000.out").exists())
+
+    def test_without_flag_brute_is_still_required(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT / "practice") as d:
+            problem = Path(d)
+            (problem / "gen.py").write_text("print(1)\n")
+            (problem / "main.cpp").write_text("int main(){}\n")
+            r = subprocess.run([str(REPO_ROOT / "scripts" / "stress"), str(problem / "main.cpp")], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("brute.cpp", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

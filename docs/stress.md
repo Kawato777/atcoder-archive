@@ -40,6 +40,16 @@
 7. 直ったらもう一度 **▶ ランダムテスト** を押し、全部一致するまで 5〜6 を繰り返す
 8. AC したら、ノートに「どんな入力で落ちたか」を書く（`hack-*.in` はコミットされないので、ノートに貼っておく）
 
+### 愚直解なしで使う（▶ クラッシュ/TLE 検出）
+
+愚直解がすぐ書けないときは、`gen.py` だけで **RE / TLE だけ** を調べられる。**▶ クラッシュ/TLE 検出** を押す（`brute.cpp` は不要）。
+
+- 見つかるもの: クラッシュ、`vector` の範囲外アクセス（`-D_GLIBCXX_DEBUG`）、Linux ではサニタイザの検出、2 秒を超える実行（TLE）
+- **見つからないもの: WA（答えの間違い）**。全部通っても「RE / TLE は無かった」だけで、答えが正しい保証はない。結果にも「WA は調べていません」と出る
+- 見つかった入力は `hack-000.in` だけ保存される（比べる相手がいないので `.out` は作られない）。練習では **▶ テスト実行** に入り、期待する出力なしで実行される
+- TLE を見るには `gen.py` 先頭の `SIZE_MAX` を大きくして、最大サイズの入力を作らせる
+- **▶ ランダムテスト** は今まで通り `brute.cpp` が必要（無いとエラーになる）
+
 ### 愚直解が TLE / RE になったとき
 
 「愚直解が TLE（無限ループ？）になりました」と出たら `brute.cpp` か `gen.py` を見直す。入力が大きすぎるなら、`gen.py` 先頭の `SIZE_MAX` を小さくするか、値の範囲を狭める。
@@ -89,6 +99,9 @@
 ./scripts/stress practice/ABC/485/C/main.cpp
 ./scripts/stress --seconds 30 --max 5000 contest/ABC/485/C.cpp
 
+# brute.cpp なし（RE / TLE だけ。WA は調べない）
+./scripts/stress --no-brute practice/ABC/485/C/main.cpp
+
 # gen.py の生成部分だけを確認する
 ./scripts/gen-init --print https://atcoder.jp/contests/abc485/tasks/abc485_c
 ```
@@ -97,7 +110,7 @@
 
 | 設定 | 既定 | 意味 |
 | --- | --- | --- |
-| `atcoder.stress.seconds` | 10 | **▶ ランダムテスト** を続ける最大の秒数 |
+| `atcoder.stress.seconds` | 10 | **▶ ランダムテスト** / **▶ クラッシュ/TLE 検出** を続ける最大の秒数 |
 | `atcoder.stress.maxCases` | 1000 | 試す最大の件数 |
 
 ## ビルドの違い
