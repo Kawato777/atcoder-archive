@@ -61,28 +61,23 @@ int main() {
     cin >> n >> k >> t;
     vector<int> A(n);
     cin >> A;
-    int l = 0, m = -1;
-    vector<bool> B(t, false);
-    rep(i, t) {
-        if (l < (int)A.size() && A[l] == i) {
-            m = k;
-            l++;
+    sort(A.begin(), A.end());
+    A.erase(unique(A.begin(), A.end()), A.end());
+    ll result = 0;
+    ll l = 0;
+    rep(i, A.size()) {
+        if (l >= t || A[i] >= t) break;
+        if (A[i] + k > l && l >= A[i]) {
+            l = A[i] + k;
+        } else {
+            result += (A[i] - l + k - 1) / k;
+            l = A[i] + k;
         }
-        if (m > 0)
-            B[i] = true;
-        else
-            B[i] = false;
-        m--;
     }
-    int result = 0;
-    for (int i = 0; i < t;) {
-        if (B[i] == false) {
-            result++;
-            i += k;
-        } else
-            i++;
+    if (l < t) {
+        result += (t - l + k - 1) / k;
     }
-    dbg(B);
+    dbg(t, l, k);
     cout << result << endl;
     return 0;
 }
