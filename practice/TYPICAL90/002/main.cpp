@@ -24,17 +24,23 @@ constexpr int dx[4] = {1, 0, -1, 0};
 constexpr int dy[4] = {0, 1, 0, -1};
 
 // ---- 入力: cin >> v で vector を、cin >> p で pair をまとめて読む ----
-template <class T, class U> istream& operator>>(istream& is, pair<T, U>& p);
-template <class T> istream& operator>>(istream& is, vector<T>& v);
-template <class T, class U> istream& operator>>(istream& is, pair<T, U>& p) { return is >> p.first >> p.second; }
-template <class T> istream& operator>>(istream& is, vector<T>& v) {
+template <class T, class U>
+istream& operator>>(istream& is, pair<T, U>& p);
+template <class T>
+istream& operator>>(istream& is, vector<T>& v);
+template <class T, class U>
+istream& operator>>(istream& is, pair<T, U>& p) { return is >> p.first >> p.second; }
+template <class T>
+istream& operator>>(istream& is, vector<T>& v) {
     for (auto& x : v) is >> x;
     return is;
 }
 
 // ---- 更新: 小さく（大きく）なったときだけ代入し、代入したかを返す ----
-template <class T> bool chmin(T& a, const T& b) { return b < a ? (a = b, true) : false; }
-template <class T> bool chmax(T& a, const T& b) { return a < b ? (a = b, true) : false; }
+template <class T>
+bool chmin(T& a, const T& b) { return b < a ? (a = b, true) : false; }
+template <class T>
+bool chmax(T& a, const T& b) { return a < b ? (a = b, true) : false; }
 
 // ---- 整数の割り算: 負の数でも数学的な floor / ceil を返す（b != 0）----
 ll floor_div(ll a, ll b) { return a / b - (a % b != 0 && ((a < 0) != (b < 0))); }
@@ -51,5 +57,39 @@ int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
+    int n;
+    cin >> n;
+    if (n % 2 == 1)
+        return 0;
+
+    for (int i = 0; i < (1 << n); ++i) {
+        string s1 = "";
+        rep(j, n) { s1 += "a"; }
+        rep(j, n) {
+            if (i & (1 << j)) {
+                s1[n - j - 1] = ')';
+            } else {
+                s1[n - j - 1] = '(';
+            }
+        }
+        int cnt = 0;
+        bool flag = false;
+        rep(j, n) {
+            if (s1[j] == '(') {
+                flag = false;
+                cnt++;
+            } else {
+                cnt--;
+                if (cnt == 0)
+                    flag = true;
+                else if (cnt < 0) {
+                    flag = false;
+                    break;
+                } else
+                    flag = false;
+            }
+        }
+        if (flag) cout << s1 << endl;
+    }
     return 0;
 }
