@@ -24,17 +24,23 @@ constexpr int dx[4] = {1, 0, -1, 0};
 constexpr int dy[4] = {0, 1, 0, -1};
 
 // ---- 入力: cin >> v で vector を、cin >> p で pair をまとめて読む ----
-template <class T, class U> istream& operator>>(istream& is, pair<T, U>& p);
-template <class T> istream& operator>>(istream& is, vector<T>& v);
-template <class T, class U> istream& operator>>(istream& is, pair<T, U>& p) { return is >> p.first >> p.second; }
-template <class T> istream& operator>>(istream& is, vector<T>& v) {
+template <class T, class U>
+istream& operator>>(istream& is, pair<T, U>& p);
+template <class T>
+istream& operator>>(istream& is, vector<T>& v);
+template <class T, class U>
+istream& operator>>(istream& is, pair<T, U>& p) { return is >> p.first >> p.second; }
+template <class T>
+istream& operator>>(istream& is, vector<T>& v) {
     for (auto& x : v) is >> x;
     return is;
 }
 
 // ---- 更新: 小さく（大きく）なったときだけ代入し、代入したかを返す ----
-template <class T> bool chmin(T& a, const T& b) { return b < a ? (a = b, true) : false; }
-template <class T> bool chmax(T& a, const T& b) { return a < b ? (a = b, true) : false; }
+template <class T>
+bool chmin(T& a, const T& b) { return b < a ? (a = b, true) : false; }
+template <class T>
+bool chmax(T& a, const T& b) { return a < b ? (a = b, true) : false; }
 
 // ---- 整数の割り算: 負の数でも数学的な floor / ceil を返す（b != 0）----
 ll floor_div(ll a, ll b) { return a / b - (a % b != 0 && ((a < 0) != (b < 0))); }
@@ -51,5 +57,26 @@ int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
+    int h, w;
+    cin >> h >> w;
+    vector<vector<int>> grid(h, vector<int>(w));
+    cin >> grid;
+    vector<int> wsum(w), hsum(h);
+    rep(i, w) {
+        rep(j, h) {
+            wsum[i] += grid[j][i];
+        }
+    }
+    rep(i, h) {
+        rep(j, w) {
+            hsum[i] += grid[i][j];
+        }
+    }
+    rep(i, h) {
+        rep(j, w) {
+            cout << wsum[j] + hsum[i] - grid[i][j] << " ";
+        }
+        cout << "\n";
+    }
     return 0;
 }
